@@ -1,56 +1,83 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+import os
+
+# =========================================================
+# AUTH / ROUTERS
+# =========================================================
+
+from app.api.auth import router as auth_router
+from app.api.profile import router as profile_router
+from app.api.posts import router as posts_router
+
+
+# =========================================================
+# DATABASE
+# =========================================================
 
 from app.database.supabase import supabase
 
+
+# =========================================================
+# MODELS
+# =========================================================
+
 from app.models.profile import ProfileCreate
+from app.models.post import PostCreate
+from app.models.automation import (
+    AutomationCreate,
+    AutomationUpdate,
+)
+
+
+# =========================================================
+# AI AGENTS
+# =========================================================
 
 from app.agents.research_agent import research_tech_news
 from app.agents.safety_agent import check_safety
 from app.agents.fact_check_agent import fact_check_post
-from app.api.auth import router as auth_router
 
 from app.agents.content_planner import (
-    plan_social_media_post
-)
-
-from app.services.image_generator import generate_post_image 
-
-from app.services.content_generator import (
-    generate_post,
-    generate_post_from_news
+    plan_social_media_post,
 )
 
 from app.agents.supervisor_agent import (
     run_supervisor,
-    run_autonomous_agent
+    run_autonomous_agent,
 )
 
 from app.agents.style_agent import (
     choose_style,
     check_duplicate,
-    check_post_against_history
+    check_post_against_history,
 )
 
-from app.models.post import PostCreate
+
+# =========================================================
+# AI SERVICES
+# =========================================================
+
+from app.services.image_generator import generate_post_image
+
+from app.services.content_generator import (
+    generate_post,
+    generate_post_from_news,
+)
 
 from app.services.post_service import (
     save_post,
-    get_previous_posts
+    get_previous_posts,
 )
 
-from app.services.scheduler_service import (
-    start_scheduler,
-    stop_scheduler,
-    add_daily_job,
-    schedule_from_database,
-    remove_daily_job,
-    get_scheduled_jobs
+from app.services.ai_orchestrator import (
+    run_ai_pipeline,
 )
 
-from app.models.automation import (
-    AutomationCreate,
-    AutomationUpdate
-)
+
+# =========================================================
+# AUTOMATION
+# =========================================================
 
 from app.services.automation_service import (
     create_automation_settings,
@@ -61,50 +88,74 @@ from app.services.automation_service import (
     disable_automation,
     pause_automation,
     resume_automation,
-    delete_automation_settings
-)
-
-from fastapi.staticfiles import StaticFiles
-import os
-from app.agents.content_planner import (
-    plan_social_media_post
+    delete_automation_settings,
 )
 
 
+# =========================================================
+# SCHEDULER
+# =========================================================
+
+from app.services.scheduler_service import (
+    start_scheduler,
+    stop_scheduler,
+    schedule_from_database,
+    remove_daily_job,
+    get_scheduled_jobs,
+)
 
 
-
-
+# =========================================================
+# FASTAPI APP
+# =========================================================
 
 app = FastAPI(
     title="AI Social Media Manager API",
     description="Backend API for AI-powered autonomous social media management.",
-    version="1.0.0"
+    version="1.0.0",
 )
-app.include_router(auth_router)
 
-#===============================================================
-# Static file for generates images
-#===============================================================
+
+# =========================================================
+# AUTHENTICATED API ROUTERS
+# =========================================================
+#
+# IMPORTANT:
+# Authentication for /profile and /posts is handled inside
+# their respective router files using get_current_user().
+#
+# DO NOT create duplicate /posts or /profile routes here.
+#
+
+app.include_router(auth_router)
+app.include_router(profile_router)
+app.include_router(posts_router)
+
+
+# =========================================================
+# STATIC FILES
+# =========================================================
+
 GENERATED_IMAGES_DIR = os.path.join(
     os.path.dirname(
         os.path.dirname(
             os.path.dirname(__file__)
         )
     ),
-    "generated_images"
+    "generated_images",
 )
 
 os.makedirs(
     GENERATED_IMAGES_DIR,
-    exist_ok=True
+    exist_ok=True,
 )
 
 app.mount(
     "/generated-images",
     StaticFiles(directory=GENERATED_IMAGES_DIR),
-    name="generated-images"
+    name="generated-images",
 )
+
 
 # =========================================================
 # BASIC
@@ -125,7 +176,7 @@ def health():
 
 
 # =========================================================
-# SUPABASE
+# SUPABASE TEST
 # =========================================================
 
 @app.get("/supabase-test")
@@ -142,26 +193,35 @@ def supabase_test():
     return {
         "status": "connected",
         "message": "Supabase connection successful",
-        "data": response.data
+        "data": response.data,
     }
 
 
 # =========================================================
-# PROFILE
+# LEGACY PROFILE ENDPOINTS
+# =========================================================
+#
+# NOTE:
+# The authenticated /profile endpoints are handled by
+# app/api/profile.py.
+#
+# These old /profiles endpoints are kept temporarily so
+# existing frontend/testing code does not immediately break.
+#
+# New frontend should use /profile.
 # =========================================================
 
 @app.post("/profiles")
-def create_profile(profile: ProfileCreate):
+def create_profile_legacy(profile: ProfileCreate):
 
     response = (
         supabase
         .table("profiles")
         .insert({
             "name": profile.name,
-            "email": profile.email,
             "niche": profile.niche,
             "language": profile.language,
-            "tone": profile.tone
+            "tone": profile.tone,
         })
         .execute()
     )
@@ -169,12 +229,12 @@ def create_profile(profile: ProfileCreate):
     return {
         "status": "success",
         "message": "Profile created successfully",
-        "data": response.data
+        "data": response.data,
     }
 
 
 @app.get("/profiles")
-def get_profiles():
+def get_profiles_legacy():
 
     response = (
         supabase
@@ -185,14 +245,14 @@ def get_profiles():
 
     return {
         "status": "success",
-        "data": response.data
+        "data": response.data,
     }
 
 
 @app.put("/profiles/{profile_id}")
-def update_profile(
+def update_profile_legacy(
     profile_id: str,
-    profile: ProfileCreate
+    profile: ProfileCreate,
 ):
 
     response = (
@@ -200,10 +260,9 @@ def update_profile(
         .table("profiles")
         .update({
             "name": profile.name,
-            "email": profile.email,
             "niche": profile.niche,
             "language": profile.language,
-            "tone": profile.tone
+            "tone": profile.tone,
         })
         .eq("id", profile_id)
         .execute()
@@ -212,12 +271,12 @@ def update_profile(
     return {
         "status": "success",
         "message": "Profile updated successfully",
-        "data": response.data
+        "data": response.data,
     }
 
 
 @app.delete("/profiles/{profile_id}")
-def delete_profile(profile_id: str):
+def delete_profile_legacy(profile_id: str):
 
     response = (
         supabase
@@ -230,7 +289,7 @@ def delete_profile(profile_id: str):
     return {
         "status": "success",
         "message": "Profile deleted successfully",
-        "data": response.data
+        "data": response.data,
     }
 
 
@@ -244,7 +303,7 @@ def generate_content(
     topic: str,
     language: str = "English",
     tone: str = "Professional",
-    style: str = "Educational"
+    style: str = "Educational",
 ):
 
     post = generate_post(
@@ -252,12 +311,12 @@ def generate_content(
         topic=topic,
         language=language,
         tone=tone,
-        style=style
+        style=style,
     )
 
     return {
         "status": "success",
-        "data": post
+        "data": post,
     }
 
 
@@ -267,7 +326,7 @@ def generate_content(
 
 @app.get("/research-news")
 def research_news(
-    topic: str = "Artificial Intelligence"
+    topic: str = "Artificial Intelligence",
 ):
 
     news = research_tech_news(topic)
@@ -275,9 +334,13 @@ def research_news(
     return {
         "status": "success",
         "count": len(news),
-        "data": news
+        "data": news,
     }
 
+
+# =========================================================
+# NEWS → POST
+# =========================================================
 
 @app.post("/news-to-post")
 def news_to_post(
@@ -286,7 +349,7 @@ def news_to_post(
     niche: str = "Technology",
     language: str = "English",
     tone: str = "Professional",
-    style: str = "Educational"
+    style: str = "Educational",
 ):
 
     post = generate_post_from_news(
@@ -295,17 +358,17 @@ def news_to_post(
         niche=niche,
         language=language,
         tone=tone,
-        style=style
+        style=style,
     )
 
     return {
         "status": "success",
-        "data": post
+        "data": post,
     }
 
 
 # =========================================================
-# AGENTS
+# AGENT
 # =========================================================
 
 @app.post("/run-agent")
@@ -314,7 +377,7 @@ def run_agent(
     topic: str,
     language: str = "English",
     tone: str = "Professional",
-    style: str = "Educational"
+    style: str = "Educational",
 ):
 
     result = run_supervisor(
@@ -322,14 +385,18 @@ def run_agent(
         topic=topic,
         language=language,
         tone=tone,
-        style=style
+        style=style,
     )
 
     return {
         "status": "success",
-        "data": result
+        "data": result,
     }
 
+
+# =========================================================
+# AUTONOMOUS POST
+# =========================================================
 
 @app.post("/autonomous-post")
 def autonomous_post(
@@ -337,7 +404,7 @@ def autonomous_post(
     topic: str,
     language: str = "English",
     tone: str = "Professional",
-    profile_id: str = None
+    profile_id: str = None,
 ):
 
     result = run_autonomous_agent(
@@ -345,7 +412,7 @@ def autonomous_post(
         topic=topic,
         language=language,
         tone=tone,
-        profile_id=profile_id
+        profile_id=profile_id,
     )
 
     return result
@@ -357,7 +424,7 @@ def autonomous_post(
 
 @app.post("/check-style")
 def check_style(
-    previous_styles: str = ""
+    previous_styles: str = "",
 ):
 
     styles = [
@@ -378,8 +445,8 @@ def check_style(
             "Storytelling",
             "Professional",
             "Question",
-            "Trending"
-        ]
+            "Trending",
+        ],
     }
 
 
@@ -390,7 +457,7 @@ def check_style(
 @app.post("/check-duplicate")
 def check_duplicate_post(
     new_caption: str,
-    previous_captions: str = ""
+    previous_captions: str = "",
 ):
 
     captions = [
@@ -401,18 +468,22 @@ def check_duplicate_post(
 
     result = check_duplicate(
         new_caption=new_caption,
-        previous_captions=captions
+        previous_captions=captions,
     )
 
     return {
         "status": "success",
-        "data": result
+        "data": result,
     }
 
 
+# =========================================================
+# DATABASE DUPLICATE CHECK
+# =========================================================
+
 @app.post("/check-database-duplicate")
 def check_database_duplicate(
-    new_caption: str
+    new_caption: str,
 ):
 
     previous_posts = get_previous_posts(
@@ -421,23 +492,30 @@ def check_database_duplicate(
 
     result = check_post_against_history(
         new_caption=new_caption,
-        previous_posts=previous_posts
+        previous_posts=previous_posts,
     )
 
     return {
         "status": "success",
         "posts_checked": len(previous_posts),
-        "data": result
+        "data": result,
     }
 
 
 # =========================================================
-# POSTS
+# LEGACY CREATE POST
+# =========================================================
+#
+# IMPORTANT:
+# GET /posts is intentionally NOT defined here.
+#
+# The authenticated GET /posts and POST /posts/generate
+# are handled by app/api/posts.py.
 # =========================================================
 
 @app.post("/posts")
-def create_post(
-    post: PostCreate
+def create_post_legacy(
+    post: PostCreate,
 ):
 
     saved_post = save_post(
@@ -446,23 +524,7 @@ def create_post(
 
     return {
         "status": "success",
-        "data": saved_post
-    }
-
-
-@app.get("/posts")
-def get_posts(
-    profile_id: str = None
-):
-
-    posts = get_previous_posts(
-        profile_id
-    )
-
-    return {
-        "status": "success",
-        "count": len(posts),
-        "data": posts
+        "data": saved_post,
     }
 
 
@@ -474,18 +536,18 @@ def get_posts(
 def check_safety_endpoint(
     caption: str,
     news_title: str = None,
-    news_source: str = None
+    news_source: str = None,
 ):
 
     result = check_safety(
         caption=caption,
         news_title=news_title,
-        news_source=news_source
+        news_source=news_source,
     )
 
     return {
         "status": "success",
-        "data": result
+        "data": result,
     }
 
 
@@ -495,7 +557,7 @@ def check_safety_endpoint(
 
 @app.post("/automation")
 def create_automation(
-    data: AutomationCreate
+    data: AutomationCreate,
 ):
 
     result = create_automation_settings(
@@ -505,13 +567,13 @@ def create_automation(
     return {
         "status": "success",
         "message": "Automation settings created.",
-        "data": result
+        "data": result,
     }
 
 
 @app.get("/automation")
 def get_automation(
-    profile_id: str = None
+    profile_id: str = None,
 ):
 
     result = get_automation_settings(
@@ -520,13 +582,13 @@ def get_automation(
 
     return {
         "status": "success",
-        "data": result
+        "data": result,
     }
 
 
 @app.get("/automation/{setting_id}")
 def get_single_automation(
-    setting_id: str
+    setting_id: str,
 ):
 
     result = get_automation_setting(
@@ -535,14 +597,14 @@ def get_single_automation(
 
     return {
         "status": "success",
-        "data": result
+        "data": result,
     }
 
 
 @app.put("/automation/{setting_id}")
 def update_automation(
     setting_id: str,
-    data: AutomationUpdate
+    data: AutomationUpdate,
 ):
 
     updates = {
@@ -553,13 +615,13 @@ def update_automation(
 
     result = update_automation_settings(
         setting_id,
-        updates
+        updates,
     )
 
     return {
         "status": "success",
         "message": "Automation settings updated.",
-        "data": result
+        "data": result,
     }
 
 
@@ -569,7 +631,8 @@ def update_automation(
 
 @app.post("/automation/{setting_id}/enable")
 def enable_automation_endpoint(
-    setting_id: str):
+    setting_id: str,
+):
 
     result = enable_automation(
         setting_id
@@ -583,7 +646,7 @@ def enable_automation_endpoint(
         "status": "success",
         "message": "Automation enabled and scheduled.",
         "automation": result,
-        "scheduler": scheduler_result
+        "scheduler": scheduler_result,
     }
 
 
@@ -593,7 +656,7 @@ def enable_automation_endpoint(
 
 @app.post("/automation/{setting_id}/disable")
 def disable_automation_endpoint(
-    setting_id: str
+    setting_id: str,
 ):
 
     setting = get_automation_setting(
@@ -618,7 +681,7 @@ def disable_automation_endpoint(
         "status": "success",
         "message": "Automation disabled and scheduler job removed.",
         "automation": result,
-        "scheduler": scheduler_result
+        "scheduler": scheduler_result,
     }
 
 
@@ -628,7 +691,7 @@ def disable_automation_endpoint(
 
 @app.post("/automation/{setting_id}/pause")
 def pause_automation_endpoint(
-    setting_id: str
+    setting_id: str,
 ):
 
     setting = get_automation_setting(
@@ -653,7 +716,7 @@ def pause_automation_endpoint(
         "status": "success",
         "message": "Automation paused and scheduler job removed.",
         "automation": result,
-        "scheduler": scheduler_result
+        "scheduler": scheduler_result,
     }
 
 
@@ -663,7 +726,7 @@ def pause_automation_endpoint(
 
 @app.post("/automation/{setting_id}/resume")
 def resume_automation_endpoint(
-    setting_id: str
+    setting_id: str,
 ):
 
     result = resume_automation(
@@ -678,7 +741,7 @@ def resume_automation_endpoint(
         "status": "success",
         "message": "Automation resumed and scheduled.",
         "automation": result,
-        "scheduler": scheduler_result
+        "scheduler": scheduler_result,
     }
 
 
@@ -688,7 +751,7 @@ def resume_automation_endpoint(
 
 @app.delete("/automation/{setting_id}")
 def delete_automation(
-    setting_id: str
+    setting_id: str,
 ):
 
     result = delete_automation_settings(
@@ -698,7 +761,7 @@ def delete_automation(
     return {
         "status": "success",
         "message": "Automation settings deleted.",
-        "data": result
+        "data": result,
     }
 
 
@@ -713,7 +776,7 @@ def start_scheduler_endpoint():
 
     return {
         "status": "success",
-        "message": "Scheduler started."
+        "message": "Scheduler started.",
     }
 
 
@@ -724,7 +787,7 @@ def stop_scheduler_endpoint():
 
     return {
         "status": "success",
-        "message": "Scheduler stopped."
+        "message": "Scheduler stopped.",
     }
 
 
@@ -733,13 +796,13 @@ def scheduler_jobs_endpoint():
 
     return {
         "status": "success",
-        "jobs": get_scheduled_jobs()
+        "jobs": get_scheduled_jobs(),
     }
 
 
 @app.post("/scheduler/schedule-from-database/{setting_id}")
 def schedule_from_database_endpoint(
-    setting_id: str
+    setting_id: str,
 ):
 
     result = schedule_from_database(
@@ -748,34 +811,44 @@ def schedule_from_database_endpoint(
 
     return result
 
+
+# =========================================================
+# IMAGE GENERATION
+# =========================================================
+
 @app.post("/generate-image")
 def generate_image_endpoint(
     niche: str,
     topic: str,
     style: str = "Professional",
-    language: str = "English"
+    language: str = "English",
 ):
+
     result = generate_post_image(
         niche=niche,
         topic=topic,
         style=style,
-        language=language
+        language=language,
     )
 
     return result
-#========================================================
-# FACT CHECK 
-#========================================================
+
+
+# =========================================================
+# FACT CHECK
+# =========================================================
+
 @app.post("/fact-check")
 def fact_check_endpoint(
     caption: str,
     news_title: str = None,
-    news_source: str = None
+    news_source: str = None,
 ):
+
     result = fact_check_post(
         caption=caption,
         news_title=news_title,
-        news_source=news_source
+        news_source=news_source,
     )
 
     return result
@@ -791,7 +864,7 @@ def plan_post_endpoint(
     niche: str = "General",
     language: str = "English",
     tone: str = "Professional",
-    style: str = "Auto"
+    style: str = "Auto",
 ):
 
     result = plan_social_media_post(
@@ -799,32 +872,31 @@ def plan_post_endpoint(
         niche=niche,
         language=language,
         tone=tone,
-        style=style
+        style=style,
     )
 
     return {
         "status": "success",
-        "data": result
+        "data": result,
     }
 
-# =========================================================
-# AI SOCIAL MEDIA POST PIPELINE
-# =========================================================
 
-from app.services.ai_orchestrator import run_ai_pipeline
-
+# =========================================================
+# FULL AI SOCIAL MEDIA POST PIPELINE
+# =========================================================
 
 @app.post("/ai-generate-post")
 def ai_generate_post(
     topic: str,
-    description: str = ""
+    description: str = "",
 ):
+
     result = run_ai_pipeline(
         topic=topic,
-        description=description
+        description=description,
     )
 
     return {
         "status": "success",
-        "data": result
+        "data": result,
     }

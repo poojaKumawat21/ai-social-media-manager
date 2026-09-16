@@ -15,3 +15,12 @@ class PostCreate(BaseModel):
     news_title: Optional[str] = None
     news_source: Optional[str] = None
     status: str = "generated"
+
+
+class PostUpdate(BaseModel):
+    caption: Optional[str] = None
+    hashtags: Optional[List[str]] = None
+    post_idea: Optional[str] = None
+    tone: Optional[str] = None
+    style: Optional[str] = None
+    status: Optional[str] = None

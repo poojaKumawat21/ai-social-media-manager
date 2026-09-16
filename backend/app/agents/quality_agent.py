@@ -553,6 +553,26 @@ IMPORTANT SAFETY RULE:
 Do NOT mark a sentence as a problem merely because
 it is motivational, promotional, celebratory or a CTA.
 
+IMPORTANT CONTENT QUALITY RULE:
+
+Do NOT put "generic", "could be more detailed", "could be
+more actionable", or "no concrete tips" in the issues list
+unless the content is actually unusable or clearly fails
+the user's intent.
+
+If the content could simply be improved, put it in
+"improvements" or "warnings" instead.
+
+Example:
+
+Bad classification:
+issues = ["Caption is generic and lacks actionable tips."]
+
+Correct classification:
+issues = []
+warnings = ["Caption could be more actionable."]
+improvements = ["Add one or two practical tips if appropriate."]
+
 Examples that are normally acceptable:
 
 "Take control of your digital footprint."
