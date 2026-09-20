@@ -13,7 +13,9 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ScheduledPosts from "./pages/ScheduledPosts";
 import PublishedPosts from "./pages/PublishedPosts";
+import ConnectedAccounts from "./pages/ConnectedAccounts";
 import ProfileSetup from "./pages/ProfileSetup";
+
 
 import "./App.css";
 
@@ -49,6 +51,7 @@ function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="scheduled-posts" element={<ScheduledPosts />} />
           <Route path="published-posts" element={<PublishedPosts />} />
+          <Route path="connected-accounts" element={<ConnectedAccounts />} />
         </Route>
 
         {/* Public Auth / Onboarding Pages */}

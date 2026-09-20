@@ -46,3 +46,114 @@ input {
 .main-content {
   padding: 30px;
 }
+/* ============================= */
+/* LIGHT THEME */
+/* ============================= */
+
+html.light-theme,
+html.light-theme body {
+  background: #f5f6fa;
+  color: #202124;
+}
+
+html.light-theme .app-layout,
+html.light-theme .main-area,
+html.light-theme .main-content {
+  background: #f5f6fa;
+}
+
+/* Sidebar */
+
+html.light-theme .sidebar {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+html.light-theme .sidebar-nav-item {
+  color: #6b7280;
+}
+
+html.light-theme .sidebar-nav-item:hover {
+  background: #f1f3f5;
+  color: #202124;
+}
+
+/* Navbar */
+
+html.light-theme .top-navbar {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+html.light-theme .search-box {
+  background: #f8f9fa;
+  border-color: #e1e4e8;
+}
+
+html.light-theme .search-box input {
+  color: #202124;
+}
+
+html.light-theme .search-box input::placeholder {
+  color: #9aa0a6;
+}
+
+/* Settings */
+
+html.light-theme .settings-page {
+  color: #202124;
+}
+
+html.light-theme .settings-header h1,
+html.light-theme .settings-card h2,
+html.light-theme .settings-card strong {
+  color: #202124;
+}
+
+html.light-theme .settings-header p,
+html.light-theme .settings-card-header p,
+html.light-theme .settings-field label {
+  color: #6b7280;
+}
+
+html.light-theme .settings-sidebar {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+html.light-theme .settings-nav-item {
+  color: #6b7280;
+}
+
+html.light-theme .settings-nav-item:hover {
+  background: #f5f5f7;
+  color: #202124;
+}
+
+html.light-theme .settings-nav-item.active {
+  background: #f0ebff;
+  color: #6d4aff;
+}
+
+html.light-theme .settings-card {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+html.light-theme .settings-field input {
+  background: #ffffff;
+  color: #202124;
+  border-color: #dfe3e8;
+}
+
+html.light-theme .setting-toggle-row {
+  border-color: #e5e7eb;
+}
+
+html.light-theme .setting-toggle-row strong {
+  color: #202124;
+}
+
+html.light-theme .setting-toggle-row p {
+  color: #6b7280;
+}

@@ -1,0 +1,123 @@
+import React, { useState } from "react";
+import { CheckCircle2, Link2 } from "lucide-react";
+
+import "./ConnectedAccounts.css";
+
+const initialAccounts = [
+  {
+    id: 1,
+    name: "Instagram",
+    username: "@yourbrand",
+    description: "Connect your Instagram account to publish and manage posts.",
+    connected: true,
+  },
+  {
+    id: 2,
+    name: "Facebook",
+    username: "Your Facebook Page",
+    description: "Publish content directly to your Facebook page.",
+    connected: false,
+  },
+  {
+    id: 3,
+    name: "LinkedIn",
+    username: "Your LinkedIn Page",
+    description: "Share professional content with your LinkedIn audience.",
+    connected: false,
+  },
+  {
+    id: 4,
+    name: "X",
+    username: "@yourbrand",
+    description: "Create and publish short-form content on X.",
+    connected: false,
+  },
+];
+
+function ConnectedAccounts() {
+  const [accounts, setAccounts] = useState(initialAccounts);
+
+  const getPlatformIcon = () => {
+    return <Link2 size={22} />;
+  };
+
+  const handleConnect = (id) => {
+    setAccounts((currentAccounts) =>
+      currentAccounts.map((account) =>
+        account.id === id
+          ? {
+              ...account,
+              connected: !account.connected,
+            }
+          : account,
+      ),
+    );
+  };
+
+  return (
+    <div className="connected-accounts-page">
+      <div className="connected-header">
+        <div>
+          <h1>Connected Accounts</h1>
+          <p>Connect and manage your social media accounts from one place.</p>
+        </div>
+      </div>
+
+      <div className="connected-summary">
+        <div className="connected-summary-icon">
+          <Link2 size={20} />
+        </div>
+
+        <div>
+          <span>Connected Platforms</span>
+          <strong>
+            {accounts.filter((account) => account.connected).length} /{" "}
+            {accounts.length}
+          </strong>
+        </div>
+      </div>
+
+      <div className="connected-accounts-grid">
+        {accounts.map((account) => (
+          <div className="connected-account-card" key={account.id}>
+            <div className="account-card-top">
+              <div
+                className={`account-platform-icon ${account.name.toLowerCase()}`}
+              >
+                {getPlatformIcon(account.name)}
+              </div>
+
+              {account.connected && (
+                <div className="account-connected-status">
+                  <CheckCircle2 size={14} />
+                  Connected
+                </div>
+              )}
+            </div>
+
+            <div className="account-card-content">
+              <h2>{account.name}</h2>
+
+              <span className="account-username">{account.username}</span>
+
+              <p>{account.description}</p>
+            </div>
+
+            <button
+              className={
+                account.connected
+                  ? "account-connect-button connected"
+                  : "account-connect-button"
+              }
+              onClick={() => handleConnect(account.id)}
+            >
+              {account.connected ? "Connected" : "Connect"}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default ConnectedAccounts;
