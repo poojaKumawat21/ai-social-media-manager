@@ -106,9 +106,11 @@ def generate_post(
     language,
     tone,
     style,
-    planner_data=None
+    planner_data=None,
+    research_data=None
 ):
     planner_data = planner_data or {}
+    research_data = research_data or {}
 
     # -----------------------------------------------------
     # Read AI planner decisions

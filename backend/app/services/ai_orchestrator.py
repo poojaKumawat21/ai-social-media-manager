@@ -26,18 +26,14 @@
 #      ↓
 # Post Renderer
 #      ↓
-# Final Social Media Image(s)
-#      ↓
 # Supabase Storage
 #
-# The AI agents make the creative decisions.
-# The renderer only implements those decisions.
 # =========================================================
-
 
 from app.agents.content_planner import plan_social_media_post
 from app.agents.style_agent import choose_style
 from app.agents.research_agent import research_topic
+from app.agents.duplicate_agent import check_duplicate_content
 from app.agents.design_agent import create_design_plan
 from app.agents.safety_agent import check_safety
 from app.agents.fact_check_agent import fact_check_post
@@ -46,22 +42,6 @@ from app.agents.quality_agent import check_quality
 from app.services.content_generator import generate_post
 from app.services.post_renderer import render_social_post
 from app.services.storage_service import upload_image_to_storage
-
-
-# =========================================================
-# HELPER — GET PREVIOUS CAPTIONS
-# =========================================================
-
-def _extract_previous_captions(previous_posts):
-
-    if not previous_posts:
-        return []
-
-    return [
-        post.get("caption")
-        for post in previous_posts
-        if post.get("caption")
-    ]
 
 
 # =========================================================
@@ -95,9 +75,8 @@ def run_ai_pipeline(
         - layout
         - colors
         - theme
-        - visual direction
 
-    Quality agents check:
+    Validation agents check:
         - duplicate content
         - safety
         - factual reliability
@@ -192,7 +171,8 @@ def run_ai_pipeline(
         language=language,
         tone=tone,
         style=selected_style,
-        planner_data=planner
+        planner_data=planner,
+        research_data=research
     )
 
     # =====================================================
@@ -201,28 +181,31 @@ def run_ai_pipeline(
 
     print("\n♻️ STEP 5 — Duplicate Check")
 
-    new_caption = content.get(
-        "caption",
-        ""
-    )
+    # The duplicate agent receives the complete current
+    # content plus previous user posts.
 
-    previous_captions = _extract_previous_captions(
-        previous_posts
-    )
-
-    duplicate_result = {
-        "is_duplicate": False,
-        "similarity": 0.0
+    current_content = {
+        "topic": topic,
+        "caption": content.get("caption", ""),
+        "post_idea": content.get("post_idea", ""),
+        "hashtags": content.get("hashtags", []),
+        "style": selected_style
     }
 
-    if previous_captions:
+    duplicate_result = check_duplicate_content(
+        current_content=current_content,
+        previous_posts=previous_posts
+    )
 
-        from app.agents.style_agent import check_duplicate
+    print(
+        f"Duplicate decision: "
+        f"{duplicate_result.get('decision')}"
+    )
 
-        duplicate_result = check_duplicate(
-            new_caption=new_caption,
-            previous_captions=previous_captions
-        )
+    print(
+        f"Similarity: "
+        f"{duplicate_result.get('similarity', 0.0)}"
+    )
 
     # =====================================================
     # STEP 6 — SAFETY CHECK
@@ -230,12 +213,21 @@ def run_ai_pipeline(
 
     print("\n🛡️ STEP 6 — Safety Check")
 
+    new_caption = content.get(
+        "caption",
+        ""
+    )
+
     news_title = research.get(
         "news_title"
+    ) or research.get(
+        "title"
     )
 
     news_source = research.get(
         "news_source"
+    ) or research.get(
+        "source"
     )
 
     safety_result = check_safety(
@@ -268,12 +260,20 @@ def run_ai_pipeline(
     # Duplicate
     # -----------------------------------------------------
 
-    if duplicate_result.get(
-        "is_duplicate"
-    ):
+    duplicate_decision = duplicate_result.get(
+        "decision"
+    )
+
+    if duplicate_decision == "regenerate_required":
 
         quality_issues.append(
-            "Generated caption is too similar to previous content."
+            "Generated content is too similar to previous content."
+        )
+
+    elif duplicate_decision == "review_required":
+
+        quality_issues.append(
+            "Generated content has noticeable similarity to previous content."
         )
 
     # -----------------------------------------------------
@@ -310,7 +310,7 @@ def run_ai_pipeline(
         )
 
     # -----------------------------------------------------
-    # Approval
+    # Approval Status
     # -----------------------------------------------------
 
     if quality_issues:
@@ -353,7 +353,7 @@ def run_ai_pipeline(
     )
 
     # =====================================================
-    # STEP 10 — QUALITY CHECK
+    # STEP 10 — FINAL QUALITY CHECK
     # =====================================================
 
     print("\n⭐ STEP 10 — Final Quality Check")
@@ -371,18 +371,6 @@ def run_ai_pipeline(
     # =====================================================
 
     print("\n🖼️ STEP 11 — Rendering Final Social Post")
-
-    # Renderer receives the COMPLETE AI design plan.
-    #
-    # It does not decide:
-    # - topic
-    # - style
-    # - theme
-    # - colors
-    # - layout
-    # - number of slides
-    #
-    # It only implements the Design Agent's decisions.
 
     rendered_post = render_social_post(
         design_plan=design
@@ -409,9 +397,6 @@ def run_ai_pipeline(
             continue
 
         try:
-
-            # Open final rendered image
-            # and upload it to Supabase.
 
             from PIL import Image
 

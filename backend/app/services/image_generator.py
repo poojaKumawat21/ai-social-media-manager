@@ -189,18 +189,37 @@ visually attractive professional aesthetic
 # =========================================================
 
 def generate_ai_visual(
-    niche: str,
-    topic: str,
-    style: str,
-    language: str
+    niche: str = "",
+    topic: str = "",
+    style: str = "Professional",
+    language: str = "English",
+    prompt: str | None = None
 ):
 
     if not HF_TOKEN:
         raise Exception("HF_TOKEN missing from .env")
 
-    visual_theme = get_visual_theme(niche)
+    # -----------------------------------------------------
+    # IMPORTANT:
+    # If Design Agent / Renderer already created a detailed
+    # visual prompt, use that prompt directly.
+    #
+    # This keeps the system agentic.
+    # The image generator should NOT overwrite the AI's
+    # visual decision with its own hardcoded design.
+    # -----------------------------------------------------
 
-    prompt = f"""
+    if prompt and prompt.strip():
+
+        final_prompt = prompt.strip()
+
+    else:
+
+        visual_theme = get_visual_theme(
+            niche
+        )
+
+        final_prompt = f"""
 Create a premium professional visual for a social media post.
 
 Topic:
@@ -250,7 +269,7 @@ the visual for a premium social media campaign.
     print("🤖 Generating AI visual...")
 
     image = client.text_to_image(
-        prompt=prompt,
+        prompt=final_prompt,
         model=IMAGE_MODEL
     )
 

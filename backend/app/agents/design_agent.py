@@ -121,10 +121,19 @@ def _slide_search_text(slide):
         slide.get("subtitle", ""),
         slide.get("body", ""),
         slide.get("visual_description", ""),
+        slide.get("visual_subject", ""),
+        slide.get("visual_environment", ""),
+        slide.get("composition", ""),
         slide.get("icon", "")
     ]
 
-    return _normalize_text(" ".join(str(v) for v in values if v))
+    return _normalize_text(
+        " ".join(
+            str(v)
+            for v in values
+            if v
+        )
+    )
 
 
 # =========================================================
@@ -305,6 +314,12 @@ Choose a suitable layout for the section.
 Do not force the same layout if another layout
 better communicates the content.
 
+The visual should remain topic-specific.
+
+Reserve a sensible text-safe area.
+
+Do not generate actual post text inside the AI visual.
+
 =========================================================
 OUTPUT
 =========================================================
@@ -322,6 +337,13 @@ Return exactly:
             "body": "",
             "visual_type": "",
             "visual_description": "",
+            "visual_subject": "",
+            "visual_environment": "",
+            "composition": "",
+            "image_position": "",
+            "text_position": "",
+            "text_safe_area": "",
+            "text_alignment": "",
             "icon": "",
             "layout": ""
         }}
@@ -394,6 +416,41 @@ Return exactly:
 
         slide.setdefault(
             "visual_description",
+            ""
+        )
+
+        slide.setdefault(
+            "visual_subject",
+            ""
+        )
+
+        slide.setdefault(
+            "visual_environment",
+            ""
+        )
+
+        slide.setdefault(
+            "composition",
+            ""
+        )
+
+        slide.setdefault(
+            "image_position",
+            ""
+        )
+
+        slide.setdefault(
+            "text_position",
+            ""
+        )
+
+        slide.setdefault(
+            "text_safe_area",
+            ""
+        )
+
+        slide.setdefault(
+            "text_alignment",
             ""
         )
 
@@ -529,7 +586,21 @@ def create_design_plan(planner_data: dict):
         "audience": audience,
         "source_required": source_required,
         "requires_research": requires_research,
-        "reasoning": reasoning
+        "reasoning": reasoning,
+
+        # Visual intelligence context
+        "topic": planner_data.get(
+            "topic",
+            ""
+        ),
+        "description": planner_data.get(
+            "description",
+            ""
+        ),
+        "niche": planner_data.get(
+            "inferred_niche",
+            ""
+        )
     }
 
     # =====================================================
@@ -730,77 +801,242 @@ Use a conclusion only when useful.
 Do NOT create unnecessary slides.
 
 =========================================================
-VISUAL INTELLIGENCE
+ADVANCED VISUAL INTELLIGENCE
 =========================================================
 
-Choose visuals based on the actual topic.
+The final design must look like a professionally
+art-directed social media post, NOT like a repeated
+AI template.
 
-Possible visual approaches:
+The visual must be genuinely connected to the topic.
 
-- photography
+FIRST understand:
+
+- topic
+- niche
+- audience
+- message
+- tone
+- post purpose
+- amount of text
+- emotional/contextual meaning
+
+THEN decide the visual execution.
+
+Do NOT use the same visual structure for every post.
+
+Do NOT simply change the background while keeping
+the same composition.
+
+The composition itself should intelligently vary.
+
+=========================================================
+VISUAL CONCEPT
+=========================================================
+
+Create a specific visual concept related to the topic.
+
+The visual concept may include:
+
+- real-world environment
+- people
+- objects
+- technology
+- architecture
+- cultural elements
+- product/contextual objects
+- abstract concepts
+- editorial photography
 - illustration
-- 3D
-- editorial
-- infographic
-- diagram
-- conceptual art
-- cinematic
-- product-focused
-- cultural artwork
-- typography-led
-- collage
-- chart/data visual
-- symbolic visual
-- minimalist
+- conceptual scene
+- cinematic scene
+- infographic elements
 
-Choose what fits.
+The visual should communicate the topic even before
+the viewer reads all the text.
 
-Avoid generic repeated visuals such as:
-
-- generic laptops
-- generic office people
-- blue technology backgrounds
-- random business stock imagery
+Avoid meaningless decorative AI imagery.
 
 =========================================================
-DESIGN VARIATION
+COMPOSITION INTELLIGENCE
 =========================================================
 
-The system will generate many posts.
+AI MUST decide the best composition for THIS post.
 
-Intelligently vary:
+Possible compositions include:
 
+- full-bleed visual
+- centered subject
+- subject on left with negative space on right
+- subject on right with negative space on left
+- top visual / bottom text
+- bottom visual / top text
+- asymmetric editorial composition
+- diagonal composition
+- large typography with supporting visual
+- image-led composition
+- text-led composition
+- magazine/editorial composition
+- cinematic composition
+- collage composition
+- layered composition
+- minimal composition
+- immersive background composition
+- object-focused composition
+- human-centered composition
+
+These are examples only.
+
+Do NOT rotate through these layouts mechanically.
+
+Do NOT select a layout merely because it was used
+in a previous post.
+
+Choose the composition based on the actual topic,
+message and visual concept.
+
+=========================================================
+VISUAL DIVERSITY
+=========================================================
+
+The system will generate many posts over time.
+
+Avoid repeating:
+
+- same composition
+- same subject position
+- same background style
+- same color treatment
+- same card structure
+- same typography arrangement
+- same image-to-text ratio
+- same visual hierarchy
+
+Two posts about different topics should NOT
+automatically look like the same template.
+
+However, visual consistency of the user's brand may
+still be maintained through subtle typography,
+spacing and branding.
+
+Professional consistency does NOT mean identical layouts.
+
+=========================================================
+REALISTIC / GENUINE VISUAL STYLE
+=========================================================
+
+When appropriate, prefer visuals that look like:
+
+- professional editorial photography
+- realistic lifestyle photography
+- documentary-style photography
+- premium commercial photography
+- natural environmental photography
+- realistic product/context photography
+- sophisticated editorial illustration
+
+Avoid making every image look like obvious AI art.
+
+Avoid unnecessary:
+
+- neon glow
+- floating holograms
+- random futuristic interfaces
+- excessive blue gradients
+- generic glowing brains
+- generic robots
+- random laptops
+- meaningless circuit patterns
+- artificial-looking people
+
+Use such elements ONLY when they actually fit the topic.
+
+=========================================================
+TOPIC-SPECIFIC BACKGROUND
+=========================================================
+
+The background must support the topic.
+
+For example:
+
+Technology topic:
+Use a believable technology/work environment,
+digital infrastructure, device, laboratory or relevant
+technical environment.
+
+Education topic:
+Use a realistic classroom, learning environment,
+teacher/student context, books, campus or relevant
+educational environment.
+
+Marketing topic:
+Use a realistic marketing/work environment,
+campaign visualization, analytics context,
+advertising or communication environment.
+
+Festival/cultural topic:
+Use culturally relevant environment,
+decorations, architecture, objects and atmosphere.
+
+Health topic:
+Use appropriate healthcare environment,
+professional setting or relevant human context.
+
+Business topic:
+Use a realistic professional/business environment,
+meeting, workplace, product or relevant context.
+
+These are examples, NOT hardcoded mappings.
+
+The AI must infer the appropriate environment from
+the actual topic.
+
+=========================================================
+TEXT-SAFE COMPOSITION
+=========================================================
+
+The AI-generated visual should leave intentional
+negative space for separately rendered text.
+
+Never place the main visual subject directly over
+the intended headline area.
+
+Choose a text-safe area such as:
+
+- top
+- bottom
+- left
+- right
+- center
+- overlay with controlled contrast
+
+The text-safe area must depend on the composition.
+
+The renderer will add the actual text later.
+
+=========================================================
+VISUAL PROMPT QUALITY
+=========================================================
+
+The ai_visual_prompt must describe:
+
+- exact subject/context
+- environment
+- visual style
+- lighting
 - composition
-- alignment
-- image placement
-- typography
-- background treatment
-- visual scale
-- whitespace
-- card usage
-- color direction
-- layout direction
+- camera/perspective when relevant
+- important visual elements
+- background
+- negative space for text
+- realistic/professional appearance
 
-Possible layouts include:
+Do NOT ask the image generator to render the
+actual headline, body text, CTA, hashtags or source.
 
-- centered
-- asymmetric
-- editorial
-- split
-- full-bleed
-- image-led
-- text-led
-- large typography
-- diagonal
-- magazine
-- poster
-- cinematic
-- minimal
-- layered
-- collage
-- grid
+The image generator creates visual content only.
 
-These are possibilities, NOT mandatory templates.
+Actual text is rendered separately.
 
 =========================================================
 READABILITY
@@ -898,7 +1134,13 @@ Use exactly:
         "type": "",
         "description": "",
         "ai_visual_required": true,
-        "ai_visual_prompt": ""
+        "ai_visual_prompt": "",
+        "environment": "",
+        "subject": "",
+        "visual_style": "",
+        "lighting": "",
+        "composition": "",
+        "text_safe_area": ""
     }},
 
     "global_layout": {{
@@ -907,7 +1149,12 @@ Use exactly:
         "alignment": "",
         "card_style": "",
         "border_radius": "24px",
-        "visual_hierarchy": ""
+        "visual_hierarchy": "",
+        "composition_type": "",
+        "image_position": "",
+        "text_position": "",
+        "text_safe_area": "",
+        "visual_balance": ""
     }},
 
     "slides": [
@@ -919,6 +1166,13 @@ Use exactly:
             "body": "",
             "visual_type": "",
             "visual_description": "",
+            "visual_subject": "",
+            "visual_environment": "",
+            "composition": "",
+            "image_position": "",
+            "text_position": "",
+            "text_safe_area": "",
+            "text_alignment": "",
             "icon": "",
             "layout": ""
         }}
@@ -978,6 +1232,38 @@ FINAL REQUIREMENTS
 16. Design must be professional and social-media ready.
 
 17. Let the CONTENT determine the DESIGN.
+
+18. Do not use a repetitive visual template.
+
+19. The visual composition must be selected specifically
+    for the current topic and message.
+
+20. The background must be contextually relevant.
+
+21. The image generator must not generate the actual
+    post text.
+
+22. Reserve intentional negative space for text.
+
+23. The composition must look professionally art-directed.
+
+24. Avoid obvious generic AI aesthetics when realistic
+    visual treatment is more appropriate.
+
+25. Do not make every post look like:
+    image on one side + text on the other.
+
+26. Do not make every post use cards.
+
+27. Do not make every post use the same typography structure.
+
+28. Variation must come from intelligent design decisions,
+    not random changes.
+
+29. Preserve readability and content hierarchy.
+
+30. Existing planner-section coverage rules have highest
+    priority and must remain intact.
 """
 
     # =====================================================
@@ -1082,6 +1368,166 @@ FINAL REQUIREMENTS
     }
 
     # =====================================================
+    # BACKGROUND VALIDATION
+    # =====================================================
+
+    if not isinstance(
+        result.get("background"),
+        dict
+    ):
+        result["background"] = {}
+
+    result["background"].setdefault(
+        "type",
+        "topic_specific"
+    )
+
+    result["background"].setdefault(
+        "description",
+        visual_direction
+    )
+
+    result["background"].setdefault(
+        "ai_visual_required",
+        True
+    )
+
+    result["background"].setdefault(
+        "ai_visual_prompt",
+        visual_direction
+    )
+
+    result["background"].setdefault(
+        "environment",
+        ""
+    )
+
+    result["background"].setdefault(
+        "subject",
+        ""
+    )
+
+    result["background"].setdefault(
+        "visual_style",
+        selected_style
+    )
+
+    result["background"].setdefault(
+        "lighting",
+        ""
+    )
+
+    result["background"].setdefault(
+        "composition",
+        ""
+    )
+
+    result["background"].setdefault(
+        "text_safe_area",
+        ""
+    )
+
+    # =====================================================
+    # GLOBAL LAYOUT VALIDATION
+    # =====================================================
+
+    if not isinstance(
+        result.get("global_layout"),
+        dict
+    ):
+        result["global_layout"] = {}
+
+    result["global_layout"].setdefault(
+        "style",
+        design_layout or "adaptive"
+    )
+
+    result["global_layout"].setdefault(
+        "padding",
+        "40px"
+    )
+
+    result["global_layout"].setdefault(
+        "alignment",
+        ""
+    )
+
+    result["global_layout"].setdefault(
+        "card_style",
+        ""
+    )
+
+    result["global_layout"].setdefault(
+        "border_radius",
+        "24px"
+    )
+
+    result["global_layout"].setdefault(
+        "visual_hierarchy",
+        ""
+    )
+
+    result["global_layout"].setdefault(
+        "composition_type",
+        ""
+    )
+
+    result["global_layout"].setdefault(
+        "image_position",
+        ""
+    )
+
+    result["global_layout"].setdefault(
+        "text_position",
+        ""
+    )
+
+    result["global_layout"].setdefault(
+        "text_safe_area",
+        ""
+    )
+
+    result["global_layout"].setdefault(
+        "visual_balance",
+        ""
+    )
+
+    # =====================================================
+    # TYPOGRAPHY VALIDATION
+    # =====================================================
+
+    if not isinstance(
+        result.get("typography"),
+        dict
+    ):
+        result["typography"] = {}
+
+    result["typography"].setdefault(
+        "headline_size",
+        "large"
+    )
+
+    result["typography"].setdefault(
+        "subheadline_size",
+        "medium"
+    )
+
+    result["typography"].setdefault(
+        "section_title_size",
+        "medium"
+    )
+
+    result["typography"].setdefault(
+        "body_size",
+        "small"
+    )
+
+    result["typography"].setdefault(
+        "cta_size",
+        "medium"
+    )
+
+    # =====================================================
     # SLIDES VALIDATION
     # =====================================================
 
@@ -1136,6 +1582,42 @@ FINAL REQUIREMENTS
             ""
         )
 
+        # New visual intelligence fields
+        slide.setdefault(
+            "visual_subject",
+            ""
+        )
+
+        slide.setdefault(
+            "visual_environment",
+            ""
+        )
+
+        slide.setdefault(
+            "composition",
+            ""
+        )
+
+        slide.setdefault(
+            "image_position",
+            ""
+        )
+
+        slide.setdefault(
+            "text_position",
+            ""
+        )
+
+        slide.setdefault(
+            "text_safe_area",
+            ""
+        )
+
+        slide.setdefault(
+            "text_alignment",
+            ""
+        )
+
         slide.setdefault(
             "icon",
             ""
@@ -1173,8 +1655,15 @@ FINAL REQUIREMENTS
                     "body": introduction,
                     "visual_type": "topic_specific",
                     "visual_description": visual_direction,
+                    "visual_subject": "",
+                    "visual_environment": "",
+                    "composition": design_layout,
+                    "image_position": "",
+                    "text_position": "",
+                    "text_safe_area": "",
+                    "text_alignment": "",
                     "icon": "",
-                    "layout": design_layout
+                    "layout": design_layout or "adaptive"
                 }
             ]
 

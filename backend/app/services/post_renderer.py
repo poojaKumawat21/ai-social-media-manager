@@ -1,1526 +1,1997 @@
-import os
-import re
+# backend/app/services/post_renderer.py
 import uuid
+import os
+import textwrap
+from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 
 from app.services.image_generator import generate_ai_visual
 
 
-# =========================================================
-# CONFIG
-# =========================================================
+# ============================================================
+# CANVAS
+# ============================================================
 
-WIDTH = 1080
-HEIGHT = 1350
+CANVAS_WIDTH = 1080
+CANVAS_HEIGHT = 1350
 
-BASE_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.dirname(
-            os.path.abspath(__file__)
-        )
-    )
-)
+DEFAULT_MARGIN = 64
+MIN_MARGIN = 40
 
-OUTPUT_DIR = os.path.join(
-    BASE_DIR,
-    "generated_images"
-)
-
-os.makedirs(
-    OUTPUT_DIR,
-    exist_ok=True
-)
+DEFAULT_RADIUS = 28
 
 
-# =========================================================
-# FONT
-# =========================================================
+# ============================================================
+# FONT HELPERS
+# ============================================================
 
-def get_font(size, bold=False):
+def _font_path(bold: bool = False) -> str:
+    """
+    Tries common Windows fonts first.
+    Falls back to DejaVu Sans if available.
+    """
 
-    font_paths = [
-        "C:/Windows/Fonts/arialbd.ttf"
-        if bold
-        else "C:/Windows/Fonts/arial.ttf",
+    candidates = []
 
-        "C:/Windows/Fonts/calibrib.ttf"
-        if bold
-        else "C:/Windows/Fonts/calibri.ttf",
+    if bold:
+        candidates = [
+            r"C:\Windows\Fonts\arialbd.ttf",
+            r"C:\Windows\Fonts\segoeuib.ttf",
+            r"C:\Windows\Fonts\calibrib.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ]
+    else:
+        candidates = [
+            r"C:\Windows\Fonts\arial.ttf",
+            r"C:\Windows\Fonts\segoeui.ttf",
+            r"C:\Windows\Fonts\calibri.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
 
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        if bold
-        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    ]
-
-    for path in font_paths:
-
+    for path in candidates:
         if os.path.exists(path):
+            return path
 
-            return ImageFont.truetype(
-                path,
-                size
-            )
+    return ""
+
+
+def get_font(size: int, bold: bool = False):
+    path = _font_path(bold=bold)
+
+    if path:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except Exception:
+            pass
 
     return ImageFont.load_default()
 
 
-# =========================================================
-# TEXT CLEANING
-# =========================================================
+# ============================================================
+# BASIC HELPERS
+# ============================================================
 
-def clean_text(text):
+def _safe_text(value: Any) -> str:
+    if value is None:
+        return ""
+
+    return str(value).strip()
+
+
+def _hex_to_rgb(value: str, fallback=(245, 245, 245)):
+    value = _safe_text(value)
+
+    if not value:
+        return fallback
+
+    value = value.replace("#", "")
+
+    if len(value) != 6:
+        return fallback
+
+    try:
+        return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+    except Exception:
+        return fallback
+
+
+def _clamp(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(maximum, value))
+
+
+def _rounded_rectangle(
+    draw: ImageDraw.ImageDraw,
+    box,
+    radius: int,
+    fill,
+    outline=None,
+    width: int = 1,
+):
+    draw.rounded_rectangle(
+        box,
+        radius=radius,
+        fill=fill,
+        outline=outline,
+        width=width,
+    )
+
+
+# ============================================================
+# DESIGN VALUES
+# ============================================================
+
+def get_design_values(design: dict) -> dict:
+    """
+    Safely extracts all AI-generated design metadata.
+
+    Renderer never assumes that the AI returned every field.
+    """
+
+    design = design if isinstance(design, dict) else {}
+
+    canvas = design.get("canvas")
+    if not isinstance(canvas, dict):
+        canvas = {}
+
+    theme = design.get("theme")
+    if not isinstance(theme, dict):
+        theme = {}
+
+    background = design.get("background")
+    if not isinstance(background, dict):
+        background = {}
+
+    global_layout = design.get("global_layout")
+    if not isinstance(global_layout, dict):
+        global_layout = {}
+
+    return {
+        "canvas": canvas,
+        "theme": theme,
+        "background": background,
+        "global_layout": global_layout,
+
+        "background_type": _safe_text(
+            background.get("type")
+        ).lower(),
+
+        "background_description": _safe_text(
+            background.get("description")
+        ),
+
+        "ai_visual_required": background.get(
+            "ai_visual_required",
+            True,
+        ),
+
+        "ai_visual_prompt": _safe_text(
+            background.get("ai_visual_prompt")
+        ),
+
+        "environment": _safe_text(
+            background.get("environment")
+        ),
+
+        "subject": _safe_text(
+            background.get("subject")
+        ),
+
+        "visual_style": _safe_text(
+            background.get("visual_style")
+        ),
+
+        "lighting": _safe_text(
+            background.get("lighting")
+        ),
+
+        "background_composition": _safe_text(
+            background.get("composition")
+        ),
+
+        "background_safe_area": _safe_text(
+            background.get("text_safe_area")
+        ),
+
+        "composition_type": _safe_text(
+            global_layout.get("composition_type")
+        ).lower(),
+
+        "image_position": _safe_text(
+            global_layout.get("image_position")
+        ).lower(),
+
+        "text_position": _safe_text(
+            global_layout.get("text_position")
+        ).lower(),
+
+        "text_safe_area": _safe_text(
+            global_layout.get("text_safe_area")
+        ),
+
+        "visual_balance": _safe_text(
+            global_layout.get("visual_balance")
+        ),
+
+        "style": _safe_text(
+            global_layout.get("style")
+        ),
+
+        "padding": _safe_text(
+            global_layout.get("padding")
+        ),
+
+        "alignment": _safe_text(
+            global_layout.get("alignment")
+        ),
+
+        "card_style": _safe_text(
+            global_layout.get("card_style")
+        ),
+
+        "border_radius": _safe_text(
+            global_layout.get("border_radius")
+        ),
+    }
+
+
+# ============================================================
+# COLOR HELPERS
+# ============================================================
+
+def _theme_color(theme: dict, keys, fallback):
+    for key in keys:
+        value = theme.get(key)
+
+        if value:
+            return _hex_to_rgb(value, fallback)
+
+    return fallback
+
+
+def get_theme_colors(design: dict):
+    values = get_design_values(design)
+
+    theme = values["theme"]
+
+    background = _theme_color(
+        theme,
+        [
+            "background",
+            "background_color",
+            "bg",
+        ],
+        (245, 245, 245),
+    )
+
+    primary = _theme_color(
+        theme,
+        [
+            "primary",
+            "primary_color",
+            "accent",
+        ],
+        (25, 25, 25),
+    )
+
+    secondary = _theme_color(
+        theme,
+        [
+            "secondary",
+            "secondary_color",
+        ],
+        (90, 90, 90),
+    )
+
+    text = _theme_color(
+        theme,
+        [
+            "text",
+            "text_color",
+        ],
+        (20, 20, 20),
+    )
+
+    muted = _theme_color(
+        theme,
+        [
+            "muted",
+            "muted_text",
+        ],
+        (100, 100, 100),
+    )
+
+    return {
+        "background": background,
+        "primary": primary,
+        "secondary": secondary,
+        "text": text,
+        "muted": muted,
+    }
+
+
+# ============================================================
+# TEXT MEASUREMENT
+# ============================================================
+
+def _text_bbox(
+    draw,
+    text,
+    font,
+    spacing=8,
+    stroke_width=0,
+):
+    if not text:
+        return (0, 0, 0, 0)
+
+    return draw.multiline_textbbox(
+        (0, 0),
+        text,
+        font=font,
+        spacing=spacing,
+        stroke_width=stroke_width,
+    )
+
+
+def _text_size(
+    draw,
+    text,
+    font,
+    spacing=8,
+):
+    bbox = _text_bbox(
+        draw,
+        text,
+        font,
+        spacing=spacing,
+    )
+
+    return (
+        max(0, bbox[2] - bbox[0]),
+        max(0, bbox[3] - bbox[1]),
+    )
+
+
+def _wrap_text(
+    draw,
+    text: str,
+    font,
+    max_width: int,
+):
+    text = _safe_text(text)
 
     if not text:
         return ""
 
-    text = str(text)
-
-    replacements = {
-        "\u2013": "-",
-        "\u2014": "-",
-        "\u2212": "-",
-        "\u2018": "'",
-        "\u2019": "'",
-        "\u201c": '"',
-        "\u201d": '"',
-        "\u00a0": " ",
-        "\u200b": "",
-        "\u2022": "•",
-    }
-
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-
-    text = text.replace("□", "-")
-
-    text = re.sub(
-        r"[\x00-\x08\x0b\x0c\x0e-\x1f]",
-        "",
-        text
-    )
-
-    return text.strip()
-
-
-# =========================================================
-# COLOR
-# =========================================================
-
-def hex_to_rgb(hex_color):
-
-    if not hex_color:
-        return (255, 255, 255)
-
-    hex_color = str(hex_color).strip()
-
-    if not hex_color.startswith("#"):
-        hex_color = "#" + hex_color
-
-    if len(hex_color) != 7:
-        return (255, 255, 255)
-
-    try:
-
-        return tuple(
-            int(hex_color[i:i + 2], 16)
-            for i in (1, 3, 5)
-        )
-
-    except ValueError:
-
-        return (255, 255, 255)
-
-
-# =========================================================
-# GRADIENT
-# =========================================================
-
-def draw_gradient(
-    draw,
-    color1,
-    color2
-):
-
-    rgb1 = hex_to_rgb(color1)
-    rgb2 = hex_to_rgb(color2)
-
-    for y in range(HEIGHT):
-
-        ratio = y / max(HEIGHT - 1, 1)
-
-        color = tuple(
-            int(
-                rgb1[i] * (1 - ratio)
-                + rgb2[i] * ratio
-            )
-            for i in range(3)
-        )
-
-        draw.line(
-            [(0, y), (WIDTH, y)],
-            fill=color
-        )
-
-
-# =========================================================
-# TEXT WRAPPING
-# =========================================================
-
-def wrap_text(
-    draw,
-    text,
-    font,
-    max_width
-):
-
-    text = clean_text(text)
-
-    if not text:
-        return []
-
     words = text.split()
 
-    lines = []
+    if not words:
+        return ""
 
-    current_line = ""
+    lines = []
+    current = ""
 
     for word in words:
+        test = word if not current else f"{current} {word}"
 
-        test_line = (
-            current_line + " " + word
-        ).strip()
-
-        bbox = draw.textbbox(
-            (0, 0),
-            test_line,
-            font=font
+        width, _ = _text_size(
+            draw,
+            test,
+            font,
         )
 
-        line_width = (
-            bbox[2] - bbox[0]
-        )
+        if width <= max_width:
+            current = test
+            continue
 
-        if line_width <= max_width:
+        if current:
+            lines.append(current)
 
-            current_line = test_line
+        current = word
 
-        else:
+    if current:
+        lines.append(current)
 
-            if current_line:
-                lines.append(
-                    current_line
-                )
-
-            current_line = word
-
-    if current_line:
-        lines.append(
-            current_line
-        )
-
-    return lines
+    return "\n".join(lines)
 
 
-# =========================================================
-# DRAW WRAPPED TEXT
-# =========================================================
-
-def draw_wrapped_text(
+def _fit_text(
     draw,
-    text,
-    xy,
-    font,
-    fill,
-    max_width,
-    line_spacing=10
+    text: str,
+    max_width: int,
+    max_height: int,
+    max_size: int,
+    min_size: int = 24,
+    bold: bool = False,
+    spacing: int = 8,
 ):
+    """
+    Dynamically reduces font size until the text fits.
+    """
 
-    text = clean_text(text)
+    text = _safe_text(text)
 
     if not text:
-        return xy[1]
+        return "", get_font(min_size, bold=bold)
 
-    x, y = xy
+    for size in range(max_size, min_size - 1, -2):
+        font = get_font(size, bold=bold)
 
-    lines = wrap_text(
+        wrapped = _wrap_text(
+            draw,
+            text,
+            font,
+            max_width,
+        )
+
+        width, height = _text_size(
+            draw,
+            wrapped,
+            font,
+            spacing=spacing,
+        )
+
+        if width <= max_width and height <= max_height:
+            return wrapped, font
+
+    font = get_font(min_size, bold=bold)
+
+    wrapped = _wrap_text(
         draw,
         text,
         font,
-        max_width
+        max_width,
     )
 
-    for line in lines:
-
-        draw.text(
-            (x, y),
-            line,
-            font=font,
-            fill=fill
-        )
-
-        bbox = draw.textbbox(
-            (x, y),
-            line,
-            font=font
-        )
-
-        line_height = (
-            bbox[3] - bbox[1]
-        )
-
-        y += (
-            line_height
-            + line_spacing
-        )
-
-    return y
+    return wrapped, font
 
 
-# =========================================================
-# ROUNDED CARD
-# =========================================================
+# ============================================================
+# SAFE AREA
+# ============================================================
 
-def rounded_card(
-    draw,
-    box,
-    fill,
-    radius=30
+def resolve_safe_area(
+    design_values: dict,
+    width: int,
+    height: int,
 ):
+    """
+    AI safe-area metadata is used as guidance.
+    Renderer always keeps a minimum physical margin.
+    """
 
-    draw.rounded_rectangle(
-        box,
-        radius=radius,
-        fill=fill
+    safe_text = (
+        design_values.get("text_safe_area")
+        or design_values.get("background_safe_area")
+        or ""
+    ).lower()
+
+    margin = DEFAULT_MARGIN
+
+    if "wide" in safe_text:
+        margin = 80
+
+    if "large" in safe_text:
+        margin = 96
+
+    margin = _clamp(
+        margin,
+        MIN_MARGIN,
+        140,
+    )
+
+    return (
+        margin,
+        margin,
+        width - margin,
+        height - margin,
     )
 
 
-# =========================================================
-# PREPARE AI IMAGE
-# =========================================================
+# ============================================================
+# BACKGROUND
+# ============================================================
 
-def prepare_ai_image(
-    ai_visual,
-    width,
-    height
+def draw_background(
+    image: Image.Image,
+    design: dict,
 ):
+    """
+    Creates a clean background.
 
-    if ai_visual is None:
-        return None
+    Gradient is NOT automatically applied to every design.
+    """
 
-    image = ai_visual.convert(
-        "RGB"
-    )
+    values = get_design_values(design)
+    colors = get_theme_colors(design)
 
-    ratio = max(
-        width / image.width,
-        height / image.height
-    )
+    bg_type = values["background_type"]
+    visual_style = values["visual_style"].lower()
 
-    new_width = int(
-        image.width * ratio
-    )
+    background_color = colors["background"]
 
-    new_height = int(
-        image.height * ratio
-    )
+    draw = ImageDraw.Draw(image)
 
-    image = image.resize(
-        (
-            new_width,
-            new_height
-        ),
-        Image.Resampling.LANCZOS
-    )
+    # --------------------------------------------------------
+    # Plain / minimal background
+    # --------------------------------------------------------
 
-    left = (
-        new_width - width
-    ) // 2
-
-    top = (
-        new_height - height
-    ) // 2
-
-    image = image.crop(
-        (
-            left,
-            top,
-            left + width,
-            top + height
+    if (
+        bg_type in {
+            "solid",
+            "plain",
+            "minimal",
+            "flat",
+        }
+        or "minimal" in visual_style
+    ):
+        draw.rectangle(
+            [0, 0, image.width, image.height],
+            fill=background_color,
         )
+        return
+
+    # --------------------------------------------------------
+    # Gradient only when requested
+    # --------------------------------------------------------
+
+    if (
+        "gradient" in bg_type
+        or "gradient" in visual_style
+    ):
+        primary = colors["primary"]
+
+        for y in range(image.height):
+            ratio = y / max(1, image.height - 1)
+
+            color = tuple(
+                int(
+                    background_color[i] * (1 - ratio)
+                    + primary[i] * ratio * 0.18
+                )
+                for i in range(3)
+            )
+
+            draw.line(
+                [(0, y), (image.width, y)],
+                fill=color,
+            )
+
+        return
+
+    # --------------------------------------------------------
+    # Dark cinematic
+    # --------------------------------------------------------
+
+    if (
+        "dark" in bg_type
+        or "cinematic" in visual_style
+    ):
+        dark = tuple(
+            int(v * 0.35)
+            for v in background_color
+        )
+
+        draw.rectangle(
+            [0, 0, image.width, image.height],
+            fill=dark,
+        )
+        return
+
+    # --------------------------------------------------------
+    # Default clean background
+    # --------------------------------------------------------
+
+    draw.rectangle(
+        [0, 0, image.width, image.height],
+        fill=background_color,
     )
 
-    return image
 
+# ============================================================
+# AI IMAGE PROCESSING
+# ============================================================
 
-# =========================================================
-# PASTE AI IMAGE
-# =========================================================
+def _resolve_image_box(
+    image_position: str,
+    composition: str,
+    canvas_width: int,
+    canvas_height: int,
+):
+    """
+    Generic composition support.
+
+    These are renderer capabilities, NOT topic mappings.
+    """
+
+    position = (
+        f"{image_position} {composition}"
+    ).lower()
+
+    if (
+        "left" in position
+        and "right" not in position
+    ):
+        return (
+            0,
+            0,
+            int(canvas_width * 0.55),
+            canvas_height,
+        )
+
+    if "right" in position:
+        return (
+            int(canvas_width * 0.45),
+            0,
+            canvas_width,
+            canvas_height,
+        )
+
+    if "top" in position:
+        return (
+            0,
+            0,
+            canvas_width,
+            int(canvas_height * 0.58),
+        )
+
+    if "bottom" in position:
+        return (
+            0,
+            int(canvas_height * 0.42),
+            canvas_width,
+            canvas_height,
+        )
+
+    if "center" in position:
+        return (
+            int(canvas_width * 0.08),
+            int(canvas_height * 0.08),
+            int(canvas_width * 0.92),
+            int(canvas_height * 0.92),
+        )
+
+    # Full bleed is the safest fallback for image-first designs.
+    return (
+        0,
+        0,
+        canvas_width,
+        canvas_height,
+    )
+
 
 def paste_ai_image(
-    base_image,
-    ai_visual,
-    box,
-    radius=35,
-    brightness=0.92
+    base: Image.Image,
+    ai_image: Image.Image | None,
+    image_position: str = "",
+    composition: str = "",
+    opacity: int = 255,
 ):
+    if ai_image is None:
+        return base
 
-    if ai_visual is None:
-        return
+    if not isinstance(ai_image, Image.Image):
+        return base
+
+    box = _resolve_image_box(
+        image_position=image_position,
+        composition=composition,
+        canvas_width=base.width,
+        canvas_height=base.height,
+    )
 
     x1, y1, x2, y2 = box
 
-    width = x2 - x1
-    height = y2 - y1
-
-    image = prepare_ai_image(
-        ai_visual,
-        width,
-        height
-    )
-
-    if image is None:
-        return
-
-    image = ImageEnhance.Brightness(
-        image
-    ).enhance(brightness)
-
-    mask = Image.new(
-        "L",
-        (
-            width,
-            height
-        ),
-        0
-    )
-
-    mask_draw = ImageDraw.Draw(
-        mask
-    )
-
-    mask_draw.rounded_rectangle(
-        (
-            0,
-            0,
-            width,
-            height
-        ),
-        radius=radius,
-        fill=255
-    )
-
-    base_image.paste(
-        image,
-        (
-            x1,
-            y1
-        ),
-        mask
-    )
-
-
-# =========================================================
-# AI VISUAL PROMPT
-# =========================================================
-
-def build_visual_prompt(
-    slide,
-    design_plan
-):
-
-    title = clean_text(
-        slide.get(
-            "title",
-            ""
-        )
-    )
-
-    subtitle = clean_text(
-        slide.get(
-            "subtitle",
-            ""
-        )
-    )
-
-    visual_description = clean_text(
-        slide.get(
-            "visual_description",
-            ""
-        )
-    )
-
-    theme = design_plan.get(
-        "theme",
-        {}
-    )
-
-    theme_name = clean_text(
-        theme.get(
-            "name",
-            "context-appropriate"
-        )
-    )
-
-    visual_style = clean_text(
-        design_plan.get(
-            "visual_style",
-            ""
-        )
-    )
-
-    layout = clean_text(
-        slide.get(
-            "layout",
-            design_plan.get(
-                "layout",
-                ""
-            )
-        )
-    )
-
-    topic = clean_text(
-        design_plan.get(
-            "topic",
-            title
-        )
-    )
-
-    prompt = f"""
-Create a high-quality visual for a social media post.
-
-Main topic:
-{topic}
-
-Slide title:
-{title}
-
-Slide context:
-{subtitle}
-
-Visual concept:
-{visual_description}
-
-Design theme:
-{theme_name}
-
-Visual style:
-{visual_style}
-
-Layout direction:
-{layout}
-
-Requirements:
-- represent the actual topic and context
-- follow the requested visual concept
-- follow the design theme
-- use a polished professional social-media aesthetic
-- make the visual appropriate for the actual purpose of the post
-- use context-appropriate realism, illustration, 3D, editorial,
-  festive, celebratory, minimal, or other visual treatment
-- create strong visual composition
-- maintain useful negative space where text may be rendered
-- do not generate important written content inside the image
-- do not generate logos
-- do not generate watermarks
-- do not generate random typography
-- do not add unrelated objects
-"""
-
-    return prompt.strip()
-
-
-# =========================================================
-# GENERATE SLIDE VISUAL
-# =========================================================
-
-def generate_slide_visual(
-    slide,
-    design_plan
-):
+    target_width = max(1, x2 - x1)
+    target_height = max(1, y2 - y1)
 
     try:
-
-        prompt = build_visual_prompt(
-            slide,
-            design_plan
+        fitted = ImageOps.fit(
+            ai_image.convert("RGB"),
+            (target_width, target_height),
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.5),
+        )
+    except Exception:
+        fitted = ai_image.convert("RGB").resize(
+            (target_width, target_height),
+            Image.Resampling.LANCZOS,
         )
 
-        print(
-            f"🤖 Generating visual for slide "
-            f"{slide.get('slide_number', '?')}..."
+    if opacity < 255:
+        fitted = fitted.convert("RGBA")
+        alpha = fitted.getchannel("A")
+        alpha = alpha.point(
+            lambda value: int(value * opacity / 255)
+        )
+        fitted.putalpha(alpha)
+
+        base.paste(
+            fitted,
+            (x1, y1),
+            fitted,
+        )
+    else:
+        base.paste(
+            fitted,
+            (x1, y1),
         )
 
-        visual = generate_ai_visual(
-            niche=design_plan.get(
-                "inferred_niche",
-                design_plan.get(
-                    "theme",
-                    {}
-                ).get(
-                    "name",
-                    "Social Media"
-                )
-            ),
-            topic=prompt,
-            style=design_plan.get(
-                "visual_style",
-                design_plan.get(
-                    "selected_style",
-                    "Professional"
-                )
-            ),
-            language=design_plan.get(
-                "language",
-                "English"
-            )
-        )
-
-        print(
-            f"✅ Visual generated for slide "
-            f"{slide.get('slide_number', '?')}"
-        )
-
-        return visual
-
-    except Exception as e:
-
-        print(
-            f"⚠️ Slide visual generation failed: {e}"
-        )
-
-        return None
+    return base
 
 
-# =========================================================
-# GET AI DESIGN VALUES
-# =========================================================
+# ============================================================
+# OVERLAY HELPERS
+# ============================================================
 
-def get_design_values(
-    slide,
-    design_plan
+def draw_overlay(
+    image: Image.Image,
+    box,
+    color=(0, 0, 0),
+    alpha=90,
+    radius=24,
 ):
-
-    theme = design_plan.get(
-        "theme",
-        {}
+    overlay = Image.new(
+        "RGBA",
+        image.size,
+        (0, 0, 0, 0),
     )
 
-    # AI-selected colors.
-    # Fallback values are only crash protection.
+    draw = ImageDraw.Draw(overlay)
 
-    primary_color = theme.get(
-        "primary_color",
-        "#1E3A8A"
+    x1, y1, x2, y2 = box
+
+    draw.rounded_rectangle(
+        [x1, y1, x2, y2],
+        radius=radius,
+        fill=(
+            color[0],
+            color[1],
+            color[2],
+            alpha,
+        ),
     )
 
-    secondary_color = theme.get(
-        "secondary_color",
-        primary_color
+    image.alpha_composite(overlay)
+
+
+def add_soft_vignette(image: Image.Image):
+    """
+    Very subtle vignette for readability.
+    """
+
+    width, height = image.size
+
+    overlay = Image.new(
+        "RGBA",
+        image.size,
+        (0, 0, 0, 0),
     )
 
-    accent_color = theme.get(
-        "accent_color",
-        "#3B82F6"
-    )
+    draw = ImageDraw.Draw(overlay)
 
-    background_color = theme.get(
-        "background_color",
-        "#FFFFFF"
-    )
-
-    text_color = theme.get(
-        "text_color",
-        "#111827"
-    )
-
-    # AI-selected layout.
-
-    layout = slide.get(
-        "layout",
-        design_plan.get(
-            "layout",
-            ""
+    # Subtle bottom fade
+    for i in range(220):
+        alpha = int(
+            55 * (i / 220)
         )
+
+        y = height - 220 + i
+
+        draw.line(
+            [(0, y), (width, y)],
+            fill=(0, 0, 0, alpha),
+        )
+
+    image.alpha_composite(overlay)
+
+
+# ============================================================
+# TEXT BLOCKS
+# ============================================================
+
+def draw_text_block(
+    image: Image.Image,
+    text: str,
+    box,
+    colors,
+    max_size: int,
+    min_size: int,
+    bold: bool = False,
+    alignment: str = "left",
+):
+    text = _safe_text(text)
+
+    if not text:
+        return
+
+    draw = ImageDraw.Draw(image)
+
+    x1, y1, x2, y2 = box
+
+    width = max(1, x2 - x1)
+    height = max(1, y2 - y1)
+
+    wrapped, font = _fit_text(
+        draw,
+        text,
+        max_width=width,
+        max_height=height,
+        max_size=max_size,
+        min_size=min_size,
+        bold=bold,
+        spacing=8,
     )
 
-    layout = clean_text(
-        layout
-    ).lower()
-
-    # AI-selected purpose.
-
-    purpose = slide.get(
-        "purpose",
-        "content"
+    bbox = _text_bbox(
+        draw,
+        wrapped,
+        font,
+        spacing=8,
     )
 
-    purpose = clean_text(
-        purpose
-    ).lower()
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+
+    if alignment == "center":
+        x = x1 + (width - text_width) / 2
+    elif alignment == "right":
+        x = x2 - text_width
+    else:
+        x = x1
+
+    y = y1 + max(
+        0,
+        (height - text_height) / 2,
+    )
+
+    draw.multiline_text(
+        (int(x), int(y)),
+        wrapped,
+        font=font,
+        fill=colors["text"],
+        spacing=8,
+        align=alignment,
+    )
+
+
+# ============================================================
+# SLIDE CONTENT
+# ============================================================
+
+def _get_slide_text(slide: dict):
+    title = _safe_text(
+        slide.get("title")
+        or slide.get("headline")
+    )
+
+    subtitle = _safe_text(
+        slide.get("subtitle")
+        or slide.get("subheadline")
+    )
+
+    body = _safe_text(
+        slide.get("body")
+        or slide.get("description")
+        or slide.get("content")
+    )
+
+    takeaway = _safe_text(
+        slide.get("key_takeaway")
+        or slide.get("takeaway")
+    )
 
     return {
-        "primary_color": primary_color,
-        "secondary_color": secondary_color,
-        "accent_color": accent_color,
-        "background_color": background_color,
-        "text_color": text_color,
-        "layout": layout,
-        "purpose": purpose
+        "title": title,
+        "subtitle": subtitle,
+        "body": body,
+        "takeaway": takeaway,
     }
 
 
-# =========================================================
-# RENDER SLIDE
-# =========================================================
+def _get_slide_design_values(
+    slide: dict,
+    design: dict,
+):
+    """
+    Slide-level values override global values.
+    """
+
+    global_values = get_design_values(design)
+
+    composition = _safe_text(
+        slide.get("composition")
+    ).lower()
+
+    if not composition:
+        composition = global_values["composition_type"]
+
+    image_position = _safe_text(
+        slide.get("image_position")
+    ).lower()
+
+    if not image_position:
+        image_position = global_values["image_position"]
+
+    text_position = _safe_text(
+        slide.get("text_position")
+    ).lower()
+
+    if not text_position:
+        text_position = global_values["text_position"]
+
+    text_safe_area = _safe_text(
+        slide.get("text_safe_area")
+    )
+
+    if not text_safe_area:
+        text_safe_area = global_values["text_safe_area"]
+
+    text_alignment = _safe_text(
+        slide.get("text_alignment")
+    ).lower()
+
+    if not text_alignment:
+        text_alignment = "left"
+
+    return {
+        "composition": composition,
+        "image_position": image_position,
+        "text_position": text_position,
+        "text_safe_area": text_safe_area,
+        "text_alignment": text_alignment,
+    }
+
+
+# ============================================================
+# LAYOUT RESOLUTION
+# ============================================================
+
+def resolve_layout_boxes(
+    composition: str,
+    image_position: str,
+    text_position: str,
+    width: int,
+    height: int,
+):
+    """
+    Converts AI composition instructions into renderer boxes.
+
+    No topic-specific logic is used here.
+    """
+
+    composition = _safe_text(composition).lower()
+    image_position = _safe_text(image_position).lower()
+    text_position = _safe_text(text_position).lower()
+
+    margin = DEFAULT_MARGIN
+
+    full = (
+        margin,
+        margin,
+        width - margin,
+        height - margin,
+    )
+
+    # --------------------------------------------------------
+    # Full image / overlay
+    # --------------------------------------------------------
+
+    if (
+        "full_bleed" in composition
+        or "image_full" in composition
+        or "centered_overlay" in composition
+        or "image_dominant" in composition
+    ):
+        image_box = (
+            0,
+            0,
+            width,
+            height,
+        )
+
+        text_box = (
+            margin,
+            int(height * 0.60),
+            width - margin,
+            height - margin,
+        )
+
+        return image_box, text_box
+
+    # --------------------------------------------------------
+    # Image left / text right
+    # --------------------------------------------------------
+
+    if (
+        "image_left" in composition
+        or (
+            "left" in image_position
+            and "right" in text_position
+        )
+    ):
+        image_box = (
+            0,
+            0,
+            int(width * 0.52),
+            height,
+        )
+
+        text_box = (
+            int(width * 0.56),
+            margin,
+            width - margin,
+            height - margin,
+        )
+
+        return image_box, text_box
+
+    # --------------------------------------------------------
+    # Text left / image right
+    # --------------------------------------------------------
+
+    if (
+        "text_left" in composition
+        or (
+            "right" in image_position
+            and "left" in text_position
+        )
+    ):
+        image_box = (
+            int(width * 0.48),
+            0,
+            width,
+            height,
+        )
+
+        text_box = (
+            margin,
+            margin,
+            int(width * 0.43),
+            height - margin,
+        )
+
+        return image_box, text_box
+
+    # --------------------------------------------------------
+    # Image top / text bottom
+    # --------------------------------------------------------
+
+    if (
+        "image_top" in composition
+        or (
+            "top" in image_position
+            and "bottom" in text_position
+        )
+    ):
+        image_box = (
+            0,
+            0,
+            width,
+            int(height * 0.58),
+        )
+
+        text_box = (
+            margin,
+            int(height * 0.63),
+            width - margin,
+            height - margin,
+        )
+
+        return image_box, text_box
+
+    # --------------------------------------------------------
+    # Text top / image bottom
+    # --------------------------------------------------------
+
+    if (
+        "text_top" in composition
+        or (
+            "bottom" in image_position
+            and "top" in text_position
+        )
+    ):
+        text_box = (
+            margin,
+            margin,
+            width - margin,
+            int(height * 0.40),
+        )
+
+        image_box = (
+            0,
+            int(height * 0.43),
+            width,
+            height,
+        )
+
+        return image_box, text_box
+
+    # --------------------------------------------------------
+    # Diagonal / editorial / asymmetric
+    # --------------------------------------------------------
+
+    if (
+        "diagonal" in composition
+        or "editorial" in composition
+        or "asymmetric" in composition
+    ):
+        image_box = (
+            int(width * 0.35),
+            int(height * 0.08),
+            width - margin,
+            int(height * 0.88),
+        )
+
+        text_box = (
+            margin,
+            int(height * 0.20),
+            int(width * 0.55),
+            int(height * 0.80),
+        )
+
+        return image_box, text_box
+
+    # --------------------------------------------------------
+    # Collage
+    # --------------------------------------------------------
+
+    if "collage" in composition:
+        image_box = (
+            int(width * 0.10),
+            int(height * 0.18),
+            int(width * 0.90),
+            int(height * 0.78),
+        )
+
+        text_box = (
+            margin,
+            margin,
+            width - margin,
+            int(height * 0.25),
+        )
+
+        return image_box, text_box
+
+    # --------------------------------------------------------
+    # Typographic
+    # --------------------------------------------------------
+
+    if (
+        "typographic" in composition
+        or "text_dominant" in composition
+        or "minimal" in composition
+    ):
+        text_box = full
+
+        image_box = (
+            int(width * 0.60),
+            int(height * 0.55),
+            width - margin,
+            height - margin,
+        )
+
+        return image_box, text_box
+
+    # --------------------------------------------------------
+    # Default balanced layout
+    # --------------------------------------------------------
+
+    image_box = (
+        int(width * 0.50),
+        int(height * 0.08),
+        width - margin,
+        int(height * 0.92),
+    )
+
+    text_box = (
+        margin,
+        int(height * 0.16),
+        int(width * 0.47),
+        int(height * 0.84),
+    )
+
+    return image_box, text_box
+
+
+# ============================================================
+# SINGLE SLIDE RENDER
+# ============================================================
 
 def render_slide(
-    slide,
-    design_plan,
-    output_path,
-    ai_visual=None,
-    slide_index=0
+    slide: dict,
+    design: dict,
+    ai_image: Image.Image | None = None,
+    slide_index: int = 0,
+    total_slides: int = 1,
 ):
+    """
+    Main slide renderer.
 
-    values = get_design_values(
-        slide,
-        design_plan
-    )
+    AI decides the design.
+    Renderer executes it safely.
+    """
 
-    primary_color = values[
-        "primary_color"
-    ]
-
-    secondary_color = values[
-        "secondary_color"
-    ]
-
-    accent_color = values[
-        "accent_color"
-    ]
-
-    background_color = values[
-        "background_color"
-    ]
-
-    text_color = values[
-        "text_color"
-    ]
-
-    layout = values[
-        "layout"
-    ]
-
-    purpose = values[
-        "purpose"
-    ]
-
-    # =====================================================
-    # BACKGROUND
-    # =====================================================
+    width = CANVAS_WIDTH
+    height = CANVAS_HEIGHT
 
     image = Image.new(
-        "RGB",
-        (
-            WIDTH,
-            HEIGHT
-        ),
-        hex_to_rgb(
-            background_color
+        "RGBA",
+        (width, height),
+        (245, 245, 245, 255),
+    )
+
+    # --------------------------------------------------------
+    # Background
+    # --------------------------------------------------------
+
+    draw_background(
+        image,
+        design,
+    )
+
+    values = get_design_values(design)
+    colors = get_theme_colors(design)
+
+    slide_values = _get_slide_design_values(
+        slide,
+        design,
+    )
+
+    composition = slide_values["composition"]
+    image_position = slide_values["image_position"]
+    text_position = slide_values["text_position"]
+    text_alignment = slide_values["text_alignment"]
+
+    # --------------------------------------------------------
+    # AI image
+    # --------------------------------------------------------
+
+    if ai_image is not None:
+        image_box, text_box = resolve_layout_boxes(
+            composition=composition,
+            image_position=image_position,
+            text_position=text_position,
+            width=width,
+            height=height,
         )
-    )
 
-    draw = ImageDraw.Draw(
-        image
-    )
-
-    # AI-selected theme controls
-    # the background instead of a fixed palette.
-
-    draw_gradient(
-        draw,
-        background_color,
-        secondary_color
-    )
-
-    # =====================================================
-    # DATA
-    # =====================================================
-
-    slide_number = slide.get(
-        "slide_number",
-        slide_index + 1
-    )
-
-    title = clean_text(
-        slide.get(
-            "title",
-            ""
-        )
-    )
-
-    subtitle = clean_text(
-        slide.get(
-            "subtitle",
-            ""
-        )
-    )
-
-    body = clean_text(
-        slide.get(
-            "body",
-            ""
-        )
-    )
-
-    visual_description = clean_text(
-        slide.get(
-            "visual_description",
-            ""
-        )
-    )
-
-    # =====================================================
-    # FONTS
-    # =====================================================
-
-    small_font = get_font(
-        25
-    )
-
-    label_font = get_font(
-        30,
-        bold=True
-    )
-
-    title_font = get_font(
-        58,
-        bold=True
-    )
-
-    subtitle_font = get_font(
-        33
-    )
-
-    body_font = get_font(
-        29
-    )
-
-    number_font = get_font(
-        38,
-        bold=True
-    )
-
-    # =====================================================
-    # AI-DRIVEN LAYOUT
-    # =====================================================
-
-    # We don't choose the creative layout here.
-    # We only implement layouts selected by Design Agent.
-
-    is_cover = (
-        purpose == "cover"
-        or layout in [
-            "cover",
-            "hero",
-            "hero_cover",
-            "title"
-        ]
-    )
-
-    is_final = (
-        purpose in [
-            "final",
-            "takeaway",
-            "cta"
-        ]
-        or layout in [
-            "final",
-            "takeaway",
-            "cta"
-        ]
-    )
-
-    is_split = (
-        "split" in layout
-        or layout in [
-            "editorial_split",
-            "split_screen",
-            "image_text_split"
-        ]
-    )
-
-    is_image_first = (
-        "image" in layout
-        and "text" not in layout
-    )
-
-    # =====================================================
-    # COVER / HERO
-    # =====================================================
-
-    if is_cover:
-
-        draw.rounded_rectangle(
+        # Resize/crop according to AI composition.
+        image_for_slide = ImageOps.fit(
+            ai_image.convert("RGB"),
             (
-                70,
-                50,
-                260,
-                72
+                max(1, image_box[2] - image_box[0]),
+                max(1, image_box[3] - image_box[1]),
             ),
-            radius=12,
-            fill=accent_color
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.5),
         )
 
-        draw.text(
+        image.paste(
+            image_for_slide,
             (
-                70,
-                105
+                image_box[0],
+                image_box[1],
             ),
-            "AI SOCIAL MEDIA MANAGER",
-            font=small_font,
-            fill=primary_color
         )
 
-        draw_wrapped_text(
+    else:
+        _, text_box = resolve_layout_boxes(
+            composition=composition,
+            image_position=image_position,
+            text_position=text_position,
+            width=width,
+            height=height,
+        )
+
+    # --------------------------------------------------------
+    # Read slide text
+    # --------------------------------------------------------
+
+    text_data = _get_slide_text(slide)
+
+    title = text_data["title"]
+    subtitle = text_data["subtitle"]
+    body = text_data["body"]
+    takeaway = text_data["takeaway"]
+
+    # --------------------------------------------------------
+    # Decide readability overlay
+    # --------------------------------------------------------
+
+    overlay_needed = (
+        "overlay" in composition
+        or "full_bleed" in composition
+        or "image_dominant" in composition
+        or "centered" in composition
+    )
+
+    if overlay_needed and ai_image is not None:
+        overlay_box = (
+            text_box[0] - 28,
+            text_box[1] - 28,
+            text_box[2] + 28,
+            text_box[3] + 28,
+        )
+
+        draw_overlay(
+            image,
+            overlay_box,
+            color=(0, 0, 0),
+            alpha=105,
+            radius=DEFAULT_RADIUS,
+        )
+
+    # --------------------------------------------------------
+    # Text layout
+    # --------------------------------------------------------
+
+    tx1, ty1, tx2, ty2 = text_box
+
+    text_width = max(
+        1,
+        tx2 - tx1,
+    )
+
+    current_y = ty1
+
+    draw = ImageDraw.Draw(image)
+
+    # --------------------------------------------------------
+    # Title
+    # --------------------------------------------------------
+
+    if title:
+        title_height_limit = int(
+            max(150, (ty2 - ty1) * 0.30)
+        )
+
+        title_wrapped, title_font = _fit_text(
             draw,
             title,
-            (
-                70,
-                175
-            ),
-            title_font,
-            primary_color,
-            930,
-            line_spacing=8
+            max_width=text_width,
+            max_height=title_height_limit,
+            max_size=68,
+            min_size=34,
+            bold=True,
+            spacing=8,
         )
 
-        if subtitle:
-
-            draw_wrapped_text(
-                draw,
-                subtitle,
-                (
-                    70,
-                    350
-                ),
-                subtitle_font,
-                text_color,
-                900,
-                line_spacing=8
-            )
-
-        if ai_visual is not None:
-
-            paste_ai_image(
-                image,
-                ai_visual,
-                (
-                    70,
-                    470,
-                    1010,
-                    825
-                ),
-                radius=35,
-                brightness=0.94
-            )
-
-        if body:
-
-            rounded_card(
-                draw,
-                (
-                    70,
-                    875,
-                    1010,
-                    1135
-                ),
-                "#FFFFFF",
-                radius=28
-            )
-
-            draw.text(
-                (
-                    105,
-                    910
-                ),
-                "OVERVIEW",
-                font=label_font,
-                fill=accent_color
-            )
-
-            draw_wrapped_text(
-                draw,
-                body,
-                (
-                    105,
-                    965
-                ),
-                body_font,
-                text_color,
-                850,
-                line_spacing=8
-            )
-
-    # =====================================================
-    # FINAL / TAKEAWAY / CTA
-    # =====================================================
-
-    elif is_final:
-
-        draw.text(
-            (
-                70,
-                85
-            ),
-            "KEY TAKEAWAY",
-            font=label_font,
-            fill=accent_color
-        )
-
-        draw_wrapped_text(
+        title_bbox = _text_bbox(
             draw,
-            title,
-            (
-                70,
-                155
-            ),
+            title_wrapped,
             title_font,
-            primary_color,
-            920,
-            line_spacing=8
+            spacing=8,
         )
 
-        if ai_visual is not None:
-
-            paste_ai_image(
-                image,
-                ai_visual,
-                (
-                    70,
-                    360,
-                    1010,
-                    680
-                ),
-                radius=32,
-                brightness=0.94
-            )
-
-        if body:
-
-            rounded_card(
-                draw,
-                (
-                    70,
-                    730,
-                    1010,
-                    1015
-                ),
-                "#FFFFFF",
-                radius=28
-            )
-
-            draw_wrapped_text(
-                draw,
-                body,
-                (
-                    105,
-                    780
-                ),
-                body_font,
-                text_color,
-                850,
-                line_spacing=9
-            )
-
-        cta_data = design_plan.get(
-            "cta",
-            {}
+        title_height = (
+            title_bbox[3] - title_bbox[1]
         )
 
-        if isinstance(
-            cta_data,
-            dict
-        ):
+        if text_alignment == "center":
+            title_x = tx1 + (
+                text_width
+                - (title_bbox[2] - title_bbox[0])
+            ) / 2
+        elif text_alignment == "right":
+            title_x = tx2 - (
+                title_bbox[2] - title_bbox[0]
+            )
+        else:
+            title_x = tx1
 
-            cta = clean_text(
-                cta_data.get(
-                    "text",
-                    ""
+        draw.multiline_text(
+            (
+                int(title_x),
+                int(current_y),
+            ),
+            title_wrapped,
+            font=title_font,
+            fill=colors["text"],
+            spacing=8,
+            align=text_alignment,
+        )
+
+        current_y += title_height + 18
+
+    # --------------------------------------------------------
+    # Subtitle
+    # --------------------------------------------------------
+
+    if subtitle and current_y < ty2:
+        subtitle_height_limit = int(
+            max(100, (ty2 - current_y) * 0.24)
+        )
+
+        subtitle_wrapped, subtitle_font = _fit_text(
+            draw,
+            subtitle,
+            max_width=text_width,
+            max_height=subtitle_height_limit,
+            max_size=34,
+            min_size=22,
+            bold=False,
+            spacing=7,
+        )
+
+        subtitle_bbox = _text_bbox(
+            draw,
+            subtitle_wrapped,
+            subtitle_font,
+            spacing=7,
+        )
+
+        subtitle_height = (
+            subtitle_bbox[3]
+            - subtitle_bbox[1]
+        )
+
+        if text_alignment == "center":
+            subtitle_x = tx1 + (
+                text_width
+                - (
+                    subtitle_bbox[2]
+                    - subtitle_bbox[0]
                 )
+            ) / 2
+
+        elif text_alignment == "right":
+            subtitle_x = tx2 - (
+                subtitle_bbox[2]
+                - subtitle_bbox[0]
             )
 
         else:
+            subtitle_x = tx1
 
-            cta = clean_text(
-                cta_data
-            )
+        draw.multiline_text(
+            (
+                int(subtitle_x),
+                int(current_y),
+            ),
+            subtitle_wrapped,
+            font=subtitle_font,
+            fill=colors["secondary"],
+            spacing=7,
+            align=text_alignment,
+        )
 
-        if cta:
+        current_y += subtitle_height + 20
 
-            draw.rounded_rectangle(
-                (
-                    105,
-                    1055,
-                    975,
-                    1160
-                ),
-                radius=25,
-                fill=primary_color
-            )
+    # --------------------------------------------------------
+    # Body
+    # --------------------------------------------------------
 
-            draw_wrapped_text(
-                draw,
-                cta,
-                (
-                    140,
-                    1085
-                ),
-                label_font,
-                "#FFFFFF",
-                800,
-                line_spacing=5
-            )
+    if body and current_y < ty2:
+        body_height_limit = int(
+            max(120, ty2 - current_y - 80)
+        )
 
-    # =====================================================
-    # IMAGE-FIRST LAYOUT
-    # =====================================================
-
-    elif is_image_first:
-
-        if ai_visual is not None:
-
-            paste_ai_image(
-                image,
-                ai_visual,
-                (
-                    40,
-                    40,
-                    1040,
-                    820
-                ),
-                radius=40,
-                brightness=0.94
-            )
-
-        draw_wrapped_text(
+        body_wrapped, body_font = _fit_text(
             draw,
-            title,
-            (
-                70,
-                865
-            ),
-            title_font,
-            primary_color,
-            900,
-            line_spacing=8
+            body,
+            max_width=text_width,
+            max_height=body_height_limit,
+            max_size=28,
+            min_size=20,
+            bold=False,
+            spacing=9,
         )
 
-        if subtitle:
-
-            draw_wrapped_text(
-                draw,
-                subtitle,
-                (
-                    70,
-                    1010
-                ),
-                subtitle_font,
-                text_color,
-                900,
-                line_spacing=8
-            )
-
-        if body:
-
-            draw_wrapped_text(
-                draw,
-                body,
-                (
-                    70,
-                    1110
-                ),
-                body_font,
-                text_color,
-                900,
-                line_spacing=7
-            )
-
-    # =====================================================
-    # SPLIT LAYOUT
-    # =====================================================
-
-    elif is_split:
-
-        # Text side
-
-        rounded_card(
+        body_bbox = _text_bbox(
             draw,
-            (
-                50,
-                50,
-                530,
-                1300
-            ),
-            "#FFFFFF",
-            radius=35
+            body_wrapped,
+            body_font,
+            spacing=9,
         )
 
-        draw.rounded_rectangle(
-            (
-                80,
-                80,
-                190,
-                190
-            ),
-            radius=30,
-            fill=primary_color
+        body_height = (
+            body_bbox[3]
+            - body_bbox[1]
         )
 
-        draw.text(
+        if text_alignment == "center":
+            body_x = tx1 + (
+                text_width
+                - (
+                    body_bbox[2]
+                    - body_bbox[0]
+                )
+            ) / 2
+
+        elif text_alignment == "right":
+            body_x = tx2 - (
+                body_bbox[2]
+                - body_bbox[0]
+            )
+
+        else:
+            body_x = tx1
+
+        draw.multiline_text(
             (
-                112,
-                105
+                int(body_x),
+                int(current_y),
             ),
-            str(slide_number),
-            font=number_font,
-            fill="#FFFFFF"
+            body_wrapped,
+            font=body_font,
+            fill=colors["text"],
+            spacing=9,
+            align=text_alignment,
         )
 
-        draw_wrapped_text(
-            draw,
-            title,
-            (
-                80,
-                250
-            ),
-            title_font,
-            primary_color,
-            390,
-            line_spacing=8
-        )
+        current_y += body_height + 22
 
-        if subtitle:
+    # --------------------------------------------------------
+    # Takeaway
+    # --------------------------------------------------------
 
-            draw_wrapped_text(
+    if takeaway and current_y < ty2:
+        remaining_height = ty2 - current_y
+
+        if remaining_height > 60:
+            takeaway_box = (
+                tx1,
+                int(current_y),
+                tx2,
+                int(
+                    min(
+                        ty2,
+                        current_y + 150,
+                    )
+                ),
+            )
+
+            _rounded_rectangle(
                 draw,
-                subtitle,
-                (
-                    80,
-                    500
+                takeaway_box,
+                radius=18,
+                fill=(
+                    colors["primary"][0],
+                    colors["primary"][1],
+                    colors["primary"][2],
+                    35,
                 ),
-                subtitle_font,
-                text_color,
-                390,
-                line_spacing=8
             )
 
-        if body:
+            takeaway_text = _safe_text(
+                takeaway
+            )
 
-            draw_wrapped_text(
+            takeaway_wrapped, takeaway_font = _fit_text(
                 draw,
-                body,
-                (
-                    80,
-                    700
+                takeaway_text,
+                max_width=max(
+                    1,
+                    text_width - 36,
                 ),
-                body_font,
-                text_color,
-                390,
-                line_spacing=8
+                max_height=100,
+                max_size=24,
+                min_size=18,
+                bold=True,
+                spacing=6,
             )
 
-        # Image side
-
-        if ai_visual is not None:
-
-            paste_ai_image(
-                image,
-                ai_visual,
+            draw.multiline_text(
                 (
-                    560,
-                    50,
-                    1030,
-                    1300
+                    tx1 + 18,
+                    current_y + 16,
                 ),
-                radius=35,
-                brightness=0.94
+                takeaway_wrapped,
+                font=takeaway_font,
+                fill=colors["text"],
+                spacing=6,
+                align=text_alignment,
             )
 
-    # =====================================================
-    # STANDARD CONTENT LAYOUT
-    # =====================================================
+    # --------------------------------------------------------
+    # Subtle readability finish
+    # --------------------------------------------------------
 
-    else:
+    if ai_image is not None and (
+        "cinematic" in values["visual_style"].lower()
+        or "editorial" in values["visual_style"].lower()
+    ):
+        add_soft_vignette(image)
 
-        # Number
+    # --------------------------------------------------------
+    # Convert to RGB
+    # --------------------------------------------------------
 
-        draw.rounded_rectangle(
-            (
-                70,
-                60,
-                155,
-                145
-            ),
-            radius=25,
-            fill=primary_color
-        )
-
-        draw.text(
-            (
-                95,
-                80
-            ),
-            str(slide_number),
-            font=number_font,
-            fill="#FFFFFF"
-        )
-
-        # Title
-
-        draw_wrapped_text(
-            draw,
-            title,
-            (
-                190,
-                60
-            ),
-            title_font,
-            primary_color,
-            800,
-            line_spacing=7
-        )
-
-        # Subtitle
-
-        if subtitle:
-
-            draw_wrapped_text(
-                draw,
-                subtitle,
-                (
-                    70,
-                    225
-                ),
-                subtitle_font,
-                text_color,
-                900,
-                line_spacing=7
-            )
-
-        # Visual
-
-        if ai_visual is not None:
-
-            paste_ai_image(
-                image,
-                ai_visual,
-                (
-                    70,
-                    330,
-                    1010,
-                    690
-                ),
-                radius=32,
-                brightness=0.94
-            )
-
-        # Information
-
-        if body:
-
-            rounded_card(
-                draw,
-                (
-                    70,
-                    730,
-                    1010,
-                    1070
-                ),
-                "#FFFFFF",
-                radius=28
-            )
-
-            draw_wrapped_text(
-                draw,
-                body,
-                (
-                    105,
-                    775
-                ),
-                body_font,
-                text_color,
-                850,
-                line_spacing=9
-            )
-
-        # Visual concept
-
-        if visual_description:
-
-            draw_wrapped_text(
-                draw,
-                "Visual concept: "
-                + visual_description,
-                (
-                    105,
-                    1085
-                ),
-                small_font,
-                accent_color,
-                850,
-                line_spacing=6
-            )
-
-    # =====================================================
-    # BRANDING
-    # =====================================================
-
-    draw.text(
-        (
-            750,
-            1285
-        ),
-        "AI Social Media Manager",
-        font=small_font,
-        fill=primary_color
-    )
-
-    # =====================================================
-    # SAVE
-    # =====================================================
-
-    image.save(
-        output_path,
-        quality=95
-    )
-
-    return output_path
+    return image.convert("RGB")
 
 
-# =========================================================
-# RENDER COMPLETE SOCIAL POST
-# =========================================================
+# ============================================================
+# AI VISUAL GENERATION
+# ============================================================
 
-def render_social_post(
-    design_plan
+def build_ai_visual_prompt(
+    slide: dict,
+    design: dict,
+    planner_data: dict | None = None,
 ):
+    """
+    Builds an image-generation prompt.
 
-    post_id = str(
-        uuid.uuid4()
+    Important:
+    This prompt must describe the visual only.
+    It must NOT ask the image model to generate text.
+    """
+
+    planner_data = planner_data or {}
+
+    values = get_design_values(design)
+
+    topic = _safe_text(
+        planner_data.get("topic")
     )
 
-    post_output_dir = os.path.join(
-        OUTPUT_DIR,
-        post_id
+    niche = _safe_text(
+        planner_data.get("niche")
+        or planner_data.get("inferred_niche")
+    )
+
+    visual_subject = _safe_text(
+        slide.get("visual_subject")
+        or values["subject"]
+    )
+
+    visual_environment = _safe_text(
+        slide.get("visual_environment")
+        or values["environment"]
+    )
+
+    visual_style = _safe_text(
+        slide.get("visual_style")
+        or values["visual_style"]
+    )
+
+    composition = _safe_text(
+        slide.get("composition")
+        or values["background_composition"]
+        or values["composition_type"]
+    )
+
+    lighting = _safe_text(
+        slide.get("lighting")
+        or values["lighting"]
+    )
+
+    image_position = _safe_text(
+        slide.get("image_position")
+        or values["image_position"]
+    )
+
+    text_safe_area = _safe_text(
+        slide.get("text_safe_area")
+        or values["text_safe_area"]
+    )
+
+    prompt_parts = [
+        "Create a professional social-media visual.",
+        "The image must look like a genuine professionally designed editorial/social-media photograph or illustration.",
+        "Do not generate any text, letters, captions, logos, watermarks, UI, or typography inside the image.",
+        "Avoid generic AI aesthetics such as glowing brains, random robots, floating holograms, excessive neon, blue digital gradients, or meaningless circuit patterns unless genuinely relevant to the subject.",
+        "Use realistic materials, believable lighting, natural perspective, coherent objects, and contextually appropriate details.",
+    ]
+
+    if topic:
+        prompt_parts.append(
+            f"Topic context: {topic}."
+        )
+
+    if niche:
+        prompt_parts.append(
+            f"Field/context: {niche}."
+        )
+
+    if visual_subject:
+        prompt_parts.append(
+            f"Primary visual subject: {visual_subject}."
+        )
+
+    if visual_environment:
+        prompt_parts.append(
+            f"Environment: {visual_environment}."
+        )
+
+    if visual_style:
+        prompt_parts.append(
+            f"Visual style: {visual_style}."
+        )
+
+    if composition:
+        prompt_parts.append(
+            f"Composition: {composition}."
+        )
+
+    if lighting:
+        prompt_parts.append(
+            f"Lighting: {lighting}."
+        )
+
+    if image_position:
+        prompt_parts.append(
+            f"Image placement concept: {image_position}."
+        )
+
+    if text_safe_area:
+        prompt_parts.append(
+            f"Keep important visual details away from the intended text-safe area: {text_safe_area}."
+        )
+
+    prompt_parts.append(
+        "High visual quality, clean composition, professional color treatment, realistic depth, sharp subject, balanced negative space."
+    )
+
+    return " ".join(prompt_parts)
+
+
+# ============================================================
+# SLIDE IMAGE GENERATION
+# ============================================================
+
+def generate_slide_visual(
+    slide: dict,
+    design: dict,
+    planner_data: dict | None = None,
+):
+    prompt = build_ai_visual_prompt(
+        slide=slide,
+        design=design,
+        planner_data=planner_data,
+    )
+
+    try:
+        return generate_ai_visual(
+            prompt=prompt,
+        )
+    except TypeError:
+        # Supports older image_generator signatures.
+        return generate_ai_visual(prompt)
+
+
+# ============================================================
+# FULL POST RENDER
+# ============================================================
+def render_social_post(
+    design: dict | None = None,
+    planner_data: dict | None = None,
+    design_plan: dict | None = None,
+):
+    """
+    Main public renderer.
+
+    Supports both:
+        design=
+        design_plan=
+
+    Returns JSON-safe image metadata.
+    PIL Image objects are saved locally and are NOT returned
+    inside the API response.
+    """
+
+    if design is None:
+        design = design_plan
+
+    if not isinstance(design, dict):
+        raise ValueError(
+            "Design data must be a dictionary."
+        )
+
+    planner_data = planner_data or {}
+
+    slides = design.get("slides")
+
+    if not isinstance(slides, list):
+        slides = []
+
+    # Single post must always have exactly one slide.
+    post_format = _safe_text(
+        design.get("format")
+    ).lower()
+
+    if (
+        post_format in {
+            "single",
+            "single_post",
+            "image",
+        }
+        and slides
+    ):
+        slides = slides[:1]
+
+    if not slides:
+        global_layout = design.get(
+            "global_layout",
+            {},
+        )
+
+        if not isinstance(global_layout, dict):
+            global_layout = {}
+
+        slides = [
+            {
+                "title": _safe_text(
+                    planner_data.get("headline")
+                ),
+                "subtitle": _safe_text(
+                    planner_data.get("subheadline")
+                ),
+                "body": _safe_text(
+                    planner_data.get("introduction")
+                ),
+                "composition": _safe_text(
+                    global_layout.get(
+                        "composition_type",
+                    )
+                ),
+                "image_position": _safe_text(
+                    global_layout.get(
+                        "image_position",
+                    )
+                ),
+                "text_position": _safe_text(
+                    global_layout.get(
+                        "text_position",
+                    )
+                ),
+                "text_safe_area": _safe_text(
+                    global_layout.get(
+                        "text_safe_area",
+                    )
+                ),
+                "text_alignment": "left",
+                "visual_subject": "",
+                "visual_environment": "",
+            }
+        ]
+
+    rendered_images = []
+
+    # Unique folder for this generated post.
+    post_id = uuid.uuid4().hex
+
+    output_dir = os.path.join(
+        "generated_posts",
+        post_id,
     )
 
     os.makedirs(
-        post_output_dir,
-        exist_ok=True
+        output_dir,
+        exist_ok=True,
     )
 
-    slides = design_plan.get(
-        "slides",
-        []
-    )
+    total_slides = len(slides)
 
-    if not slides:
+    for index, slide in enumerate(slides):
 
-        raise ValueError(
-            "Design plan contains no slides."
+        if not isinstance(slide, dict):
+            slide = {}
+
+        ai_image = None
+
+        background = design.get(
+            "background",
+            {},
         )
 
-    generated_images = []
+        if not isinstance(
+            background,
+            dict,
+        ):
+            background = {}
 
-    for index, slide in enumerate(
-        slides
-    ):
-
-        print(
-            f"\n🎨 Processing slide "
-            f"{index + 1}/{len(slides)}"
+        ai_visual_required = background.get(
+            "ai_visual_required",
+            True,
         )
 
-        # =================================================
-        # GENERATE AI VISUAL
-        # =================================================
+        if ai_visual_required:
+            try:
+                ai_image = generate_slide_visual(
+                    slide=slide,
+                    design=design,
+                    planner_data=planner_data,
+                )
+            except Exception as exc:
+                print(
+                    f"[WARN] AI visual generation failed "
+                    f"for slide {index}: {exc}"
+                )
+                ai_image = None
 
-        ai_visual = generate_slide_visual(
-            slide,
-            design_plan
+        rendered = render_slide(
+            slide=slide,
+            design=design,
+            ai_image=ai_image,
+            slide_index=index,
+            total_slides=total_slides,
         )
 
-        # =================================================
-        # SAVE RAW AI VISUAL
-        # =================================================
-
-        if ai_visual is not None:
-
-            ai_visual_path = os.path.join(
-                post_output_dir,
-                f"ai_visual_{index + 1}.png"
-            )
-
-            ai_visual.save(
-                ai_visual_path
-            )
-
-            print(
-                f"🖼️ AI visual saved: "
-                f"{ai_visual_path}"
-            )
-
-        # =================================================
-        # RENDER FINAL SOCIAL MEDIA SLIDE
-        # =================================================
+        filename = f"slide_{index + 1}.png"
 
         output_path = os.path.join(
-            post_output_dir,
-            f"slide_{index + 1}.png"
+            output_dir,
+            filename,
         )
 
-        render_slide(
-            slide,
-            design_plan,
+        rendered.save(
             output_path,
-            ai_visual=ai_visual,
-            slide_index=index
+            format="PNG",
+            optimize=True,
         )
 
-        print(
-            f"✅ Final slide saved: "
-            f"{output_path}"
-        )
-
-        generated_images.append(
+        rendered_images.append(
             {
                 "slide_number": index + 1,
-                "filename": (
-                    f"slide_{index + 1}.png"
-                ),
+                "filename": filename,
                 "path": output_path,
-                "url": (
-                    f"/generated-images/"
-                    f"{post_id}/"
-                    f"slide_{index + 1}.png"
-                )
+                "url": f"/generated-images/{post_id}/{filename}",
             }
         )
-
-    # =====================================================
-    # RESULT
-    # =====================================================
 
     return {
         "status": "success",
         "post_id": post_id,
-        "format": design_plan.get(
-            "format",
-            "single_post"
-        ),
-        "slide_count": len(
-            generated_images
-        ),
-        "images": generated_images
+        "format": post_format or "single_post",
+        "slide_count": len(rendered_images),
+        "images": rendered_images,
     }
+# ============================================================
+# SAVE RENDERED SLIDES
+# ============================================================
+
+def save_rendered_slides(
+    rendered_post: dict,
+    output_dir: str,
+    prefix: str = "post",
+):
+    os.makedirs(
+        output_dir,
+        exist_ok=True,
+    )
+
+    saved_files = []
+
+    slides = rendered_post.get(
+        "slides",
+        [],
+    )
+
+    for slide in slides:
+        index = slide.get(
+            "index",
+            len(saved_files),
+        )
+
+        image = slide.get(
+            "image"
+        )
+
+        if image is None:
+            continue
+
+        filename = (
+            f"{prefix}_slide_{index + 1}.png"
+        )
+
+        path = os.path.join(
+            output_dir,
+            filename,
+        )
+
+        image.save(
+            path,
+            format="PNG",
+            optimize=True,
+        )
+
+        saved_files.append(
+            {
+                "index": index,
+                "path": path,
+            }
+        )
+
+    return saved_files

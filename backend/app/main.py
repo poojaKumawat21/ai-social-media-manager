@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import os
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.social_accounts import router as social_accounts_router
 
 # =========================================================
 # AUTH / ROUTERS
@@ -140,7 +141,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(posts_router)
-
+app.include_router(social_accounts_router)
 
 # =========================================================
 # STATIC FILES

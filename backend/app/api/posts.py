@@ -5,7 +5,10 @@ from app.core.security import get_current_user
 from app.database.supabase import get_database_client
 from app.services.ai_orchestrator import run_ai_pipeline
 from app.models.post import PostUpdate
-
+from app.services.linkedin_publish_service import (
+    publish_linkedin_text_post,
+    publish_linkedin_multi_image_post,
+)
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
 
@@ -275,6 +278,162 @@ def update_post(
         return {
             "message": "Post updated successfully",
             "post": response.data[0],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+# =========================================================
+# PUBLISH POST TO LINKEDIN
+# =========================================================
+
+@router.post("/{post_id}/publish/linkedin")
+def publish_post_to_linkedin(
+    post_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    try:
+        db = get_database_client()
+
+        # -------------------------------------------------
+        # Get saved post
+        # -------------------------------------------------
+
+        post_response = (
+            db.table("posts")
+            .select("*")
+            .eq("id", post_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+
+        if not post_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Post not found.",
+            )
+
+        post = post_response.data[0]
+
+        # -------------------------------------------------
+        # Get connected LinkedIn account
+        # -------------------------------------------------
+
+        account_response = (
+            db.table("social_accounts")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("platform", "linkedin")
+            .eq("status", "connected")
+            .limit(1)
+            .execute()
+        )
+
+        if not account_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="LinkedIn account is not connected.",
+            )
+
+        linkedin_account = account_response.data[0]
+
+        access_token = linkedin_account.get("access_token")
+        author_id = linkedin_account.get("platform_user_id")
+
+        if not access_token:
+            raise HTTPException(
+                status_code=400,
+                detail="LinkedIn access token is missing.",
+            )
+
+        if not author_id:
+            raise HTTPException(
+                status_code=400,
+                detail="LinkedIn profile ID is missing.",
+            )
+
+        # -------------------------------------------------
+        # Use saved caption as LinkedIn post text
+        # -------------------------------------------------
+
+        caption = post.get("caption")
+
+        if not caption:
+            raise HTTPException(
+                status_code=400,
+                detail="Post caption is empty.",
+            )
+
+        # Add hashtags if available
+        hashtags = post.get("hashtags") or []
+
+        if hashtags:
+            hashtag_text = " ".join(
+                hashtag if str(hashtag).startswith("#")
+                else f"#{hashtag}"
+                for hashtag in hashtags
+            )
+
+            caption = f"{caption.strip()}\n\n{hashtag_text}"
+
+        # -------------------------------------------------
+        # Publish to LinkedIn
+        # -------------------------------------------------
+
+        media_urls = post.get("media_urls") or []
+
+        image_url = media_urls[0] if media_urls else None
+
+        media_urls = post.get("media_urls") or []
+
+        if len(media_urls) >= 2:
+         result = publish_linkedin_multi_image_post(
+        access_token=access_token,
+        author_id=author_id,
+        text=caption,
+        image_urls=media_urls,
+    )
+
+        elif len(media_urls) == 1:
+            result = publish_linkedin_text_post(
+        access_token=access_token,
+        author_id=author_id,
+        text=caption,
+        image_url=media_urls[0],
+    )
+
+        else:
+            result = publish_linkedin_text_post(
+        access_token=access_token,
+        author_id=author_id,
+        text=caption,
+    )
+        # -------------------------------------------------
+        # Update local post status
+        # -------------------------------------------------
+
+        (
+            db.table("posts")
+            .update({
+                "status": "published",
+            })
+            .eq("id", post_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+        return {
+            "message": "Post published to LinkedIn successfully.",
+            "platform": "linkedin",
+            "post_id": post_id,
+            "linkedin_post_id": result.get("post_id"),
+            "status": "published",
         }
 
     except HTTPException:

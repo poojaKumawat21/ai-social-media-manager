@@ -1,12 +1,12 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from app.database.supabase import supabase
 
-from app.core.security import get_current_user
-from fastapi import Depends
-from fastapi import APIRouter, HTTPException, Depends
+from app.database.supabase_auth import supabase_auth
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+router = APIRouter(
+    prefix="/auth",
+    tags=["Authentication"],
+)
 
 
 class RegisterRequest(BaseModel):
@@ -22,7 +22,7 @@ class LoginRequest(BaseModel):
 @router.post("/register")
 def register(data: RegisterRequest):
     try:
-        response = supabase.auth.sign_up(
+        response = supabase_auth.auth.sign_up(
             {
                 "email": data.email,
                 "password": data.password,
@@ -41,6 +41,8 @@ def register(data: RegisterRequest):
             "email": response.user.email,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=400,
@@ -51,7 +53,7 @@ def register(data: RegisterRequest):
 @router.post("/login")
 def login(data: LoginRequest):
     try:
-        response = supabase.auth.sign_in_with_password(
+        response = supabase_auth.auth.sign_in_with_password(
             {
                 "email": data.email,
                 "password": data.password,
@@ -72,16 +74,19 @@ def login(data: LoginRequest):
             "email": response.user.email,
         }
 
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password",
         )
-# print("AUTH.PY LOADED - ROUTER EXISTS:", router)
+
+
 @router.post("/resend-confirmation")
 def resend_confirmation(data: RegisterRequest):
     try:
-        response = supabase.auth.resend(
+        supabase_auth.auth.resend(
             {
                 "type": "signup",
                 "email": data.email,
@@ -98,10 +103,3 @@ def resend_confirmation(data: RegisterRequest):
             status_code=400,
             detail="Could not resend confirmation email",
         )
-
-@router.get("/me")
-def get_me(user_id: str = Depends(get_current_user)):
-    return {
-        "message": "Authenticated user",
-        "user_id": user_id,
-    }
