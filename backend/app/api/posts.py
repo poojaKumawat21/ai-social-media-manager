@@ -99,10 +99,7 @@ def generate_post(
             "user_id": user_id,
             "profile_id": profile.get("id"),
 
-            "niche": planner.get(
-                "niche",
-                profile.get("niche"),
-            ),
+            "niche": planner.get("inferred_niche", profile.get("niche")),
 
             "topic": data.topic,
 

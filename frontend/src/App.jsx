@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import MainLayout from "./components/layout/MainLayout";
 import Dashboard from "./pages/Dashboard";
@@ -13,31 +13,49 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ScheduledPosts from "./pages/ScheduledPosts";
 import PublishedPosts from "./pages/PublishedPosts";
-
+import ProfileSetup from "./pages/ProfileSetup";
 
 import "./App.css";
+
+function ProtectedRoute({ children }) {
+  const token = localStorage.getItem("access_token");
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<MainLayout />}>
-          {/* Dashboard */}
+        {/* Protected App */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <MainLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<Dashboard />} />
-
-          {/* Create Post */}
           <Route path="create-post" element={<CreatePost />} />
           <Route path="ai-ideas" element={<AIIdeas />} />
           <Route path="content-calendar" element={<ContentCalendar />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="news-trends" element={<NewsTrends />} />
           <Route path="settings" element={<Settings />} />
-          <Route path="login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="scheduled-posts" element={<ScheduledPosts />} />
           <Route path="published-posts" element={<PublishedPosts />} />
         </Route>
+
+        {/* Public Auth / Onboarding Pages */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/profile-setup" element={<ProfileSetup />} />
       </Routes>
     </BrowserRouter>
   );

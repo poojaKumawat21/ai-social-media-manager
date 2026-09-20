@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import api from "../../services/api";
+
+
 import {
   Sparkles,
   Mail,
@@ -31,19 +34,36 @@ function Register() {
     });
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+const handleSubmit = async (e) => {
+  e.preventDefault();
 
-    if (formData.password !== formData.confirmPassword) {
-      alert("Passwords do not match.");
-      return;
-    }
+  if (formData.password !== formData.confirmPassword) {
+    alert("Passwords do not match.");
+    return;
+  }
 
-    console.log("Registration data:", formData);
+  try {
+    const result = await api.post("/auth/register", {
+      email: formData.email.trim(),
+      password: formData.password,
+    });
 
-    // Backend registration will be connected later
+    console.log("Registration successful:", result);
+
+    alert(
+      "Registration successful! Please check your email for confirmation."
+    );
+
     navigate("/login");
-  };
+  } catch (error) {
+    console.error("Registration error:", error);
+
+    alert(
+      error.message ||
+        "Unable to create account. Please try again."
+    );
+  }
+};
 
   return (
     <div className="register-page">

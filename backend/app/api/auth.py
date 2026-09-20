@@ -103,3 +103,4 @@ def resend_confirmation(data: RegisterRequest):
             status_code=400,
             detail="Could not resend confirmation email",
         )
+    

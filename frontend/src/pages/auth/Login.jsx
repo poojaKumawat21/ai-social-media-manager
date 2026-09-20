@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import "./Login.css";
+import api from "../../services/api";
 
 function Login() {
   const navigate = useNavigate();
@@ -32,22 +33,53 @@ function Login() {
     }));
   };
 
-  const handleLogin = (e) => {
-    e.preventDefault();
+const handleLogin = async (e) => {
+  e.preventDefault();
 
-    if (!formData.email.trim() || !formData.password.trim()) {
-      alert("Please enter your email and password.");
-      return;
+  if (!formData.email.trim() || !formData.password.trim()) {
+    alert("Please enter your email and password.");
+    return;
+  }
+
+  setIsLoading(true);
+
+  try {
+    const result = await api.post("/auth/login", {
+      email: formData.email.trim(),
+      password: formData.password,
+    });
+
+    if (!result.access_token) {
+      throw new Error("Access token was not received.");
     }
 
-    setIsLoading(true);
+    localStorage.setItem("access_token", result.access_token);
+    localStorage.setItem("user_id", result.user_id);
+    localStorage.setItem("user_email", result.email);
 
-    // Backend authentication will be connected later.
-    setTimeout(() => {
-      setIsLoading(false);
-      alert("Login will be connected to the backend later.");
-    }, 800);
-  };
+    if (result.refresh_token) {
+      localStorage.setItem("refresh_token", result.refresh_token);
+    }
+
+    // alert("Login successful!");
+
+    try {
+  await api.get("/profile");
+  navigate("/");
+} catch (error) {
+  navigate("/profile-setup");
+}
+  } catch (error) {
+    console.error("Login error:", error);
+
+    alert(
+      error.message ||
+        "Unable to login. Please check your email and password.",
+    );
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   return (
     <div className="auth-page">

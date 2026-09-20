@@ -7,7 +7,7 @@ import CreatePost from "../pages/CreatePost";
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Dashboard />} />
+      <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/create-post" element={<CreatePost />} />
     </Routes>
   );

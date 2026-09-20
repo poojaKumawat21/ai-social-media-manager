@@ -1,5 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./CreatePost.css";
+import api from "../services/api";
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 function CreatePost() {
   const [topic, setTopic] = useState("");
@@ -7,49 +11,290 @@ function CreatePost() {
   const [platform, setPlatform] = useState("Instagram");
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiPlan, setAiPlan] = useState(null);
+  const [generatedImages, setGeneratedImages] = useState([]);
+  const DRAFT_KEY = "postpilot_create_post_draft";
+  useEffect(() => {
+  try {
+    const savedDraft = localStorage.getItem(DRAFT_KEY);
 
-  // Temporary frontend-only AI generation
-  // Backend integration will be connected in the next step.
+    if (savedDraft) {
+      const draft = JSON.parse(savedDraft);
+
+      setTopic(draft.topic || "");
+      setDescription(draft.description || "");
+      setPlatform(draft.platform || "Instagram");
+    }
+
+    const savedResult = localStorage.getItem(RESULT_KEY);
+
+    if (savedResult) {
+      const result = JSON.parse(savedResult);
+
+      setAiPlan(result.aiPlan || null);
+      setGeneratedImages(result.generatedImages || []);
+    }
+  } catch (error) {
+    console.error("Failed to restore Create Post data:", error);
+  }
+}, []);
+useEffect(() => {
+  localStorage.setItem(
+    DRAFT_KEY,
+    JSON.stringify({
+      topic,
+      description,
+      platform,
+    }),
+  );
+}, [topic, description, platform]);
+useEffect(() => {
+  if (!aiPlan && generatedImages.length === 0) {
+    return;
+  }
+
+  localStorage.setItem(
+    RESULT_KEY,
+    JSON.stringify({
+      aiPlan,
+      generatedImages,
+    }),
+  );
+}, [aiPlan, generatedImages]);
+
+  const RESULT_KEY = "postpilot_create_post_result";
+  const PENDING_KEY = "postpilot_create_post_pending";
+
   const handleGenerateAI = async () => {
-    if (!topic.trim()) {
-      alert("Please enter a topic.");
+  if (!topic.trim()) {
+    alert("Please enter a topic.");
+    return;
+  }
+
+  setIsGenerating(true);
+  setAiPlan(null);
+  setGeneratedImages([]);
+
+  localStorage.setItem(
+    PENDING_KEY,
+    JSON.stringify({
+      topic: topic.trim(),
+      startedAt: Date.now(),
+    }),
+  );
+
+  try {
+    const result = await api.post("/posts/generate", {
+      topic: topic.trim(),
+      description: description.trim(),
+    });
+
+    console.log("GENERATED POST:", result);
+
+    const aiResult = result.ai_result || {};
+    const planner = aiResult.planner || {};
+    const content = aiResult.content || {};
+
+    const combinedPlan = {
+      ...planner,
+      ...content,
+    };
+
+    setAiPlan(combinedPlan);
+
+    /*
+     * Get image URLs.
+     *
+     * First preference:
+     * saved post media_urls
+     *
+     * Fallback:
+     * uploaded_images from AI pipeline
+     */
+
+    let mediaUrls = result.post?.media_urls || [];
+
+    if (!mediaUrls.length) {
+      mediaUrls = (aiResult.uploaded_images || [])
+        .map(
+          (image) =>
+            image?.storage?.public_url ||
+            image?.storage?.url ||
+            image?.url,
+        )
+        .filter(Boolean);
+    }
+
+    /*
+     * Final fallback:
+     * renderer generated image URLs
+     */
+
+    if (!mediaUrls.length) {
+      mediaUrls = (aiResult.render?.images || [])
+        .map((image) => image?.url)
+        .filter(Boolean);
+    }
+
+    const fullImageUrls = mediaUrls
+      .filter(Boolean)
+      .map((url) => {
+        if (/^https?:\/\//i.test(url)) {
+          return url;
+        }
+
+        return `${API_BASE_URL}${
+          url.startsWith("/") ? "" : "/"
+        }${url}`;
+      });
+
+    console.log("IMAGE URLS:", fullImageUrls);
+
+    setGeneratedImages(fullImageUrls);
+
+    localStorage.setItem(
+      RESULT_KEY,
+      JSON.stringify({
+        aiPlan: combinedPlan,
+        generatedImages: fullImageUrls,
+      }),
+    );
+
+    localStorage.removeItem(PENDING_KEY);
+
+    alert("AI post generated successfully!");
+  } catch (error) {
+    console.error("AI generation error:", error);
+
+    localStorage.removeItem(PENDING_KEY);
+
+    if (error.message.includes("401")) {
+      alert("Your session has expired. Please login again.");
+
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+      localStorage.removeItem("user_id");
+      localStorage.removeItem("user_email");
+
       return;
     }
 
-    setIsGenerating(true);
+    alert(
+      error.message ||
+        "Unable to generate post. Make sure the backend is running.",
+    );
+  } finally {
+    setIsGenerating(false);
+  }
+};
+useEffect(() => {
+  const pendingData = localStorage.getItem(PENDING_KEY);
 
+  if (!pendingData) {
+    return;
+  }
+
+  let pending;
+
+  try {
+    pending = JSON.parse(pendingData);
+  } catch {
+    localStorage.removeItem(PENDING_KEY);
+    return;
+  }
+
+  let intervalId = null;
+  let cancelled = false;
+
+  const checkGeneratedPost = async () => {
     try {
-      const params = new URLSearchParams({
-        topic: topic.trim(),
-        description: description.trim(),
+      const result = await api.get("/posts");
+
+      const posts = result.posts || [];
+
+      const generatedPost = posts.find((post) => {
+        const createdAt = post.created_at
+          ? new Date(post.created_at).getTime()
+          : 0;
+
+        return (
+          post.topic === pending.topic &&
+          post.status === "generated" &&
+          createdAt >= pending.startedAt
+        );
       });
 
-      const response = await fetch(
-        `http://127.0.0.1:8000/plan-post?${params.toString()}`,
-        {
-          method: "POST",
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to generate post plan.");
+      if (!generatedPost || cancelled) {
+        return false;
       }
 
-      const result = await response.json();
+      const restoredPlan = {
+        headline: generatedPost.post_idea || generatedPost.topic,
+        caption: generatedPost.caption || "",
+        hashtags: generatedPost.hashtags || [],
+        tone: generatedPost.tone || "Professional",
+        selected_style: generatedPost.style || "AI Selected",
+        format: "single_post",
+      };
 
-      console.log("AI PLAN:", result);
-      setAiPlan(result.data);
+      const mediaUrls = (generatedPost.media_urls || [])
+        .filter(Boolean)
+        .map((url) => {
+          if (/^https?:\/\//i.test(url)) {
+            return url;
+          }
 
-      alert("AI planning completed successfully!");
-    } catch (error) {
-      console.error("AI generation error:", error);
-      alert(
-        "Unable to connect with AI backend. Make sure the backend is running.",
+          return `${API_BASE_URL}${
+            url.startsWith("/") ? "" : "/"
+          }${url}`;
+        });
+
+      setTopic(generatedPost.topic || pending.topic);
+      setAiPlan(restoredPlan);
+      setGeneratedImages(mediaUrls);
+
+      localStorage.setItem(
+        RESULT_KEY,
+        JSON.stringify({
+          aiPlan: restoredPlan,
+          generatedImages: mediaUrls,
+        }),
       );
-    } finally {
-      setIsGenerating(false);
+
+      localStorage.removeItem(PENDING_KEY);
+
+      return true;
+    } catch (error) {
+      console.error("Checking generated post:", error);
+      return false;
     }
   };
+
+  const startChecking = async () => {
+    const found = await checkGeneratedPost();
+
+    if (!found && !cancelled) {
+      intervalId = setInterval(async () => {
+        const done = await checkGeneratedPost();
+
+        if (done && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      }, 3000);
+    }
+  };
+
+  startChecking();
+
+  return () => {
+    cancelled = true;
+
+    if (intervalId) {
+      clearInterval(intervalId);
+    }
+  };
+}, []);
+
   return (
     <div className="create-post-page">
       {/* ================= PAGE HEADER ================= */}
@@ -135,8 +380,8 @@ function CreatePost() {
               Available platforms will come from Connected Accounts.
             </small>
           </div>
-          {/* AI STRATEGY */}
 
+          {/* AI STRATEGY */}
           <div className="ai-strategy-panel">
             <div className="ai-strategy-top">
               <div className="ai-strategy-brand">
@@ -174,6 +419,7 @@ function CreatePost() {
               <div className="ai-strategy-data">
                 <div>
                   <span>FORMAT</span>
+
                   <strong>
                     {aiPlan?.format === "carousel"
                       ? "Carousel"
@@ -185,17 +431,22 @@ function CreatePost() {
 
                 <div>
                   <span>TONE</span>
+
                   <strong>{aiPlan?.tone || "Auto"}</strong>
                 </div>
 
                 <div>
                   <span>AUDIENCE</span>
+
                   <strong>{aiPlan?.audience || "AI Selected"}</strong>
                 </div>
 
                 <div>
                   <span>STYLE</span>
-                  <strong>{aiPlan?.selected_style || "AI Selected"}</strong>
+
+                  <strong>
+                    {aiPlan?.selected_style || "AI Selected"}
+                  </strong>
                 </div>
               </div>
             </div>
@@ -203,15 +454,19 @@ function CreatePost() {
             {aiPlan && (
               <div className="ai-strategy-footer">
                 <span>✦</span>
+
                 AI has automatically optimized this strategy for your selected
                 platform.
               </div>
             )}
           </div>
+
+          {/* AI HASHTAGS */}
           {aiPlan?.hashtags?.length > 0 && (
             <div className="ai-hashtags">
               <div className="ai-hashtags-header">
                 <span>AI HASHTAGS</span>
+
                 <small>Optimized for your post</small>
               </div>
 
@@ -236,7 +491,9 @@ function CreatePost() {
           <div className="post-actions">
             <button className="save-draft-button">Save Draft</button>
 
-            <button className="schedule-post-button">Schedule Post</button>
+            <button className="schedule-post-button">
+              Schedule Post
+            </button>
 
             <button className="publish-post-button">Publish</button>
           </div>
@@ -271,15 +528,23 @@ function CreatePost() {
                 <>
                   <h3>{aiPlan.headline || topic}</h3>
 
-                  {aiPlan.subheadline && <p>{aiPlan.subheadline}</p>}
+                  {aiPlan.subheadline && (
+                    <p>{aiPlan.subheadline}</p>
+                  )}
 
-                  {aiPlan.introduction && <p>{aiPlan.introduction}</p>}
+                  {aiPlan.introduction && (
+                    <p>{aiPlan.introduction}</p>
+                  )}
 
                   {aiPlan.sections?.length > 0 && (
                     <div className="ai-sections">
                       {aiPlan.sections.map((section) => (
-                        <div className="ai-section" key={section.number}>
+                        <div
+                          className="ai-section"
+                          key={section.number}
+                        >
                           <strong>{section.title}</strong>
+
                           <p>{section.description}</p>
                         </div>
                       ))}
@@ -288,7 +553,8 @@ function CreatePost() {
 
                   {aiPlan.key_takeaway && (
                     <p>
-                      <strong>Key Takeaway:</strong> {aiPlan.key_takeaway}
+                      <strong>Key Takeaway:</strong>{" "}
+                      {aiPlan.key_takeaway}
                     </p>
                   )}
 
@@ -310,6 +576,7 @@ function CreatePost() {
               <div className="ai-image-header">
                 <div>
                   <span>AI VISUAL</span>
+
                   <h3>Generated Creative</h3>
                 </div>
 
@@ -319,25 +586,46 @@ function CreatePost() {
               </div>
 
               <div className="ai-image-preview">
-                <div className="ai-image-glow"></div>
+                {generatedImages.length > 0 ? (
+                  <div className="generated-images-container">
+                    {generatedImages.map((imageUrl, index) => (
+                      <img
+                        key={index}
+                        src={imageUrl}
+                        alt={`AI generated visual ${index + 1}`}
+                        className="generated-ai-image"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <div className="ai-image-glow"></div>
 
-                <div className="ai-image-content">
-                  <div className="ai-image-icon">✦</div>
+                    <div className="ai-image-content">
+                      <div className="ai-image-icon">✦</div>
 
-                  <strong>
-                    {aiPlan
-                      ? "AI visual will be generated"
-                      : "Your visual starts here"}
-                  </strong>
+                      <strong>
+                        {aiPlan
+                          ? "AI visual will be generated"
+                          : "Your visual starts here"}
+                      </strong>
 
-                  <p>AI will create a visual based on your content strategy.</p>
-                </div>
+                      <p>
+                        AI will create a visual based on your content
+                        strategy.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
 
+              {/* KEEP THIS BUTTON FOR NOW */}
               <button
                 className="generate-image-button"
                 onClick={() =>
-                  alert("Image generation will be connected to AI backend.")
+                  alert(
+                    "Image generation will be connected to AI backend.",
+                  )
                 }
               >
                 ✦ Generate Visual
