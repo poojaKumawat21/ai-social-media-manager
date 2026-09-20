@@ -13,6 +13,7 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ScheduledPosts from "./pages/ScheduledPosts";
 import PublishedPosts from "./pages/PublishedPosts";
+import ConnectedAccounts from "./pages/ConnectedAccounts";
 
 
 import "./App.css";
@@ -37,6 +38,7 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="scheduled-posts" element={<ScheduledPosts />} />
           <Route path="published-posts" element={<PublishedPosts />} />
+          <Route path="connected-accounts" element={<ConnectedAccounts />} />
         </Route>
       </Routes>
     </BrowserRouter>
