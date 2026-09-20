@@ -617,3 +617,150 @@
     display: none;
   }
 }
+
+/* =========================
+   NAVBAR AUTH BUTTONS
+========================= */
+
+.navbar-login-button,
+.navbar-register-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  height: 34px;
+  padding: 0 12px;
+
+  border-radius: 8px;
+
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition: all 0.25s ease;
+}
+
+
+/* LOGIN */
+
+.navbar-login-button {
+  border: 1px solid rgba(139, 92, 246, 0.25);
+
+  background: rgba(139, 92, 246, 0.04);
+
+  color: #aaa1c9;
+}
+
+.navbar-login-button svg {
+  color: #9b7cff;
+
+  transition: transform 0.25s ease;
+}
+
+.navbar-login-button:hover {
+  border-color: rgba(139, 92, 246, 0.55);
+
+  background: rgba(139, 92, 246, 0.10);
+
+  color: #d8d0ff;
+
+  box-shadow:
+    0 0 18px rgba(139, 92, 246, 0.12);
+
+  transform: translateY(-1px);
+}
+
+.navbar-login-button:hover svg {
+  transform: rotate(15deg) scale(1.1);
+}
+
+
+/* GET STARTED */
+
+.navbar-register-button {
+  position: relative;
+
+  overflow: hidden;
+
+  border: 1px solid rgba(139, 92, 246, 0.45);
+
+  background: linear-gradient(
+    110deg,
+    #7654d8,
+    #5968e8
+  );
+
+  color: #ffffff;
+
+  box-shadow:
+    0 5px 18px rgba(91, 75, 190, 0.18);
+}
+
+.navbar-register-button::before {
+  content: "";
+
+  position: absolute;
+
+  top: 0;
+  left: -100%;
+
+  width: 70%;
+  height: 100%;
+
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.18),
+    transparent
+  );
+
+  transform: skewX(-20deg);
+
+  transition: left 0.5s ease;
+}
+
+.navbar-register-button:hover::before {
+  left: 140%;
+}
+
+.navbar-register-button:hover {
+  transform: translateY(-1px);
+
+  border-color: rgba(167, 139, 250, 0.75);
+
+  box-shadow:
+    0 8px 25px rgba(91, 75, 190, 0.30),
+    0 0 18px rgba(139, 92, 246, 0.14);
+}
+
+.navbar-register-button svg {
+  transition: transform 0.25s ease;
+}
+
+.navbar-register-button:hover svg {
+  transform: translate(2px, -2px);
+}
+
+
+/* MOBILE */
+
+@media (max-width: 800px) {
+
+  .navbar-right {
+    gap: 10px;
+  }
+
+  .navbar-login-button span,
+  .navbar-register-button span {
+    display: none;
+  }
+
+  .navbar-login-button,
+  .navbar-register-button {
+    width: 34px;
+    padding: 0;
+  }
+}

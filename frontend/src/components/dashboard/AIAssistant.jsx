@@ -1,10 +1,25 @@
-import React, { useState } from "react";
 import React, { useEffect, useState } from "react";
+import robotIdle from "../../assets/ai/robot-idle.png";
 
 function AIAssistant() {
   const [isHovered, setIsHovered] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [message, setMessage] = useState("");
+  const [robotAction, setRobotAction] = useState("idle");
+  const actions = ["idle", "jump", "thinking", "wave", "move"];
+
+  useEffect(() => {
+    const actions = ["idle", "jump", "thinking", "wave", "move"];
+
+    let index = 0;
+
+    const interval = setInterval(() => {
+      index = (index + 1) % actions.length;
+      setRobotAction(actions[index]);
+    }, 100); // Change action every 100 milliseconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Send message
   const handleSendMessage = () => {
@@ -62,9 +77,7 @@ function AIAssistant() {
               }}
             />
 
-            <button onClick={handleSendMessage}>
-              →
-            </button>
+            <button onClick={handleSendMessage}>→</button>
           </div>
         </div>
       )}
@@ -72,9 +85,7 @@ function AIAssistant() {
       {/* Assistant Header */}
       <div className="assistant-header">
         <div>
-          <span className="assistant-label">
-            YOUR AI MANAGER
-          </span>
+          <span className="assistant-label">YOUR AI MANAGER</span>
 
           <h2>
             Meet your AI Assistant
@@ -82,8 +93,8 @@ function AIAssistant() {
           </h2>
 
           <p>
-            Your intelligent partner for creating, planning and
-            managing social media content.
+            Your intelligent partner for creating, planning and managing social
+            media content.
           </p>
         </div>
 
@@ -95,71 +106,20 @@ function AIAssistant() {
 
       {/* Robot Area */}
       <div className="assistant-stage">
-
         {/* Floating Particles */}
-        <span className="assistant-particle particle-one">
-          ✦
-        </span>
+        <span className="assistant-particle particle-one">✦</span>
 
-        <span className="assistant-particle particle-two">
-          ✦
-        </span>
+        <span className="assistant-particle particle-two">✦</span>
 
-        <span className="assistant-particle particle-three">
-          •
-        </span>
+        <span className="assistant-particle particle-three">•</span>
 
-        {/* Robot */}
-        <div className="robot-container">
-
-          <div className="robot-shadow"></div>
-
-          <div className="robot">
-
-            {/* Antenna */}
-            <div className="robot-antenna">
-              <span></span>
-            </div>
-
-            {/* Head */}
-            <div className="robot-head">
-
-              <div className="robot-ear left-ear"></div>
-              <div className="robot-ear right-ear"></div>
-
-              <div className="robot-face">
-
-                <div className="robot-eyes">
-                  <span></span>
-                  <span></span>
-                </div>
-
-                <div className="robot-mouth"></div>
-
-              </div>
-            </div>
-
-            {/* Neck */}
-            <div className="robot-neck"></div>
-
-            {/* Body */}
-            <div className="robot-body">
-
-              <div className="robot-chest-light"></div>
-
-              <div className="robot-chest-lines">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-
-            </div>
-
-            {/* Arms */}
-            <div className="robot-arm left-arm"></div>
-            <div className="robot-arm right-arm"></div>
-
-          </div>
+        {/* Nova Robot */}
+        <div className={`robot-container robot-action-${robotAction}`}>
+          <img
+            src={robotIdle}
+            alt="Nova AI Assistant"
+            className="nova-robot-image"
+          />
         </div>
 
         {/* Hover Message */}
@@ -167,23 +127,17 @@ function AIAssistant() {
           <span>✦</span>
           AI is ready to help
         </div>
-
       </div>
 
       {/* Bottom Controls */}
       <div className="assistant-footer">
-
         <div className="assistant-info">
-
-          <div className="assistant-avatar">
-            AI
-          </div>
+          <div className="assistant-avatar">AI</div>
 
           <div>
             <strong>Nova</strong>
             <span>Autonomous AI Assistant</span>
           </div>
-
         </div>
 
         {/* Talk To AI Button */}
@@ -194,9 +148,7 @@ function AIAssistant() {
           Talk to AI
           <span>→</span>
         </button>
-
       </div>
-
     </div>
   );
 }
