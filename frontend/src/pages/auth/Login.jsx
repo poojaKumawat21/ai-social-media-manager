@@ -67,7 +67,11 @@ const handleLogin = async (e) => {
   await api.get("/profile");
   navigate("/");
 } catch (error) {
-  navigate("/profile-setup");
+  if (error.status === 404) {
+    navigate("/profile-setup");
+  } else {
+    throw error;
+  }
 }
   } catch (error) {
     console.error("Login error:", error);
