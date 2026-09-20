@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { CheckCircle2, Link2 } from "lucide-react";
+
+import api from "../services/api";
 
 import "./ConnectedAccounts.css";
 
@@ -9,7 +11,7 @@ const initialAccounts = [
     name: "Instagram",
     username: "@yourbrand",
     description: "Connect your Instagram account to publish and manage posts.",
-    connected: true,
+    connected: false,
   },
   {
     id: 2,
@@ -41,18 +43,39 @@ function ConnectedAccounts() {
     return <Link2 size={22} />;
   };
 
-  const handleConnect = (id) => {
-    setAccounts((currentAccounts) =>
-      currentAccounts.map((account) =>
-        account.id === id
-          ? {
-              ...account,
-              connected: !account.connected,
-            }
-          : account,
-      ),
-    );
+  useEffect(() => {
+  const loadConnectedAccounts = async () => {
+    try {
+      const result = await api.get("/social-accounts");
+
+      const connectedAccounts = result.accounts || result;
+
+      setAccounts((currentAccounts) =>
+        currentAccounts.map((account) => {
+          const connectedAccount = Array.isArray(connectedAccounts)
+            ? connectedAccounts.find(
+                (item) =>
+                  item.platform?.toLowerCase() ===
+                  account.name.toLowerCase()
+              )
+            : null;
+
+          return {
+            ...account,
+            connected: !!connectedAccount,
+            username:
+              connectedAccount?.account_name ||
+              account.username,
+          };
+        })
+      );
+    } catch (error) {
+      console.error("Failed to load connected accounts:", error);
+    }
   };
+
+  loadConnectedAccounts();
+}, []);
 
   return (
     <div className="connected-accounts-page">
@@ -109,7 +132,7 @@ function ConnectedAccounts() {
                   ? "account-connect-button connected"
                   : "account-connect-button"
               }
-              onClick={() => handleConnect(account.id)}
+              onClick={() => handleConnect(account)}
             >
               {account.connected ? "Connected" : "Connect"}
             </button>
