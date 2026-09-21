@@ -17,7 +17,82 @@ class GeneratePostRequest(BaseModel):
     topic: str
     description: str = ""
 
+class SaveDraftRequest(BaseModel):
+    topic: str = ""
+    description: str = ""
 
+@router.post("/draft")
+def save_draft(
+    data: SaveDraftRequest,
+    user_id: str = Depends(get_current_user),
+):
+    try:
+        db = get_database_client()
+
+        if not data.topic.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Topic is required to save a draft.",
+            )
+
+        profile_response = (
+            db
+            .table("profiles")
+            .select("*")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+
+        if not profile_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Profile not found. Please create your profile first.",
+            )
+
+        profile = profile_response.data
+
+        draft_data = {
+            "user_id": user_id,
+            "profile_id": profile.get("id"),
+            "niche": profile.get("niche", ""),
+            "topic": data.topic.strip(),
+            "caption": data.description.strip(),
+            "hashtags": [],
+            "post_idea": "",
+            "style": "",
+            "language": profile.get("language", "English"),
+            "tone": profile.get("tone", "Professional"),
+            "status": "draft",
+            "media_urls": [],
+        }
+
+        response = (
+            db
+            .table("posts")
+            .insert(draft_data)
+            .execute()
+        )
+
+        if not response.data:
+            raise HTTPException(
+                status_code=400,
+                detail="Draft could not be saved.",
+            )
+
+        return {
+            "message": "Draft saved successfully.",
+            "post": response.data[0],
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
 @router.post("/generate")
 def generate_post(
     data: GeneratePostRequest,
@@ -235,6 +310,42 @@ def get_post(
         raise HTTPException(
             status_code=404,
             detail="Post not found",
+        )
+
+@router.delete("/{post_id}")
+def delete_post(
+    post_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    try:
+        db = get_database_client()
+
+        response = (
+            db.table("posts")
+            .delete()
+            .eq("id", post_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+        if not response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Post not found",
+            )
+
+        return {
+            "message": "Post deleted successfully.",
+            "post_id": post_id,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
         )
 
 

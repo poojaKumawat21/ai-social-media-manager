@@ -11,6 +11,7 @@ from app.api.social_accounts import router as social_accounts_router
 from app.api.auth import router as auth_router
 from app.api.profile import router as profile_router
 from app.api.posts import router as posts_router
+from app.api.scheduled_posts import router as scheduled_posts_router
 
 
 # =========================================================
@@ -142,6 +143,7 @@ app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(posts_router)
 app.include_router(social_accounts_router)
+app.include_router(scheduled_posts_router)
 
 # =========================================================
 # STATIC FILES
