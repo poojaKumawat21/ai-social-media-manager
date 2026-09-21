@@ -62,6 +62,11 @@ function Settings() {
       label: "Security",
       icon: Shield,
     },
+    {
+      id: "brand",
+      label: "Brand Settings",
+      icon: Palette,
+    },
   ];
 
   return (
@@ -228,6 +233,31 @@ function Settings() {
                 enabled={settings.darkMode}
                 onChange={() => handleChange("darkMode", !settings.darkMode)}
               />
+            </div>
+          )}
+          {activeSection === "brand" && (
+            <div className="settings-card">
+              <div className="settings-card-header">
+                <h2>Brand Settings</h2>
+                <p>Manage the information used for your brand content.</p>
+              </div>
+
+              <div className="settings-form-grid">
+                <div className="settings-field">
+                  <label>Brand Name</label>
+                  <input type="text" placeholder="Enter your brand name" />
+                </div>
+
+                <div className="settings-field">
+                  <label>Website</label>
+                  <input type="text" placeholder="https://example.com" />
+                </div>
+              </div>
+
+              <div className="settings-field" style={{ marginTop: "20px" }}>
+                <label>Brand Description</label>
+                <textarea placeholder="Describe your brand..." rows="5" />
+              </div>
             </div>
           )}
 

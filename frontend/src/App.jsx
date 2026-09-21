@@ -14,6 +14,9 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import ScheduledPosts from "./pages/ScheduledPosts";
 import PublishedPosts from "./pages/PublishedPosts";
 import ConnectedAccounts from "./pages/ConnectedAccounts";
+import BrandSettings from "./pages/settings/BrandSettings";
+import AISettings from "./pages/settings/AISettings";
+import SecuritySettings from "./pages/settings/SecuritySettings";
 
 
 import "./App.css";
@@ -39,6 +42,9 @@ function App() {
           <Route path="scheduled-posts" element={<ScheduledPosts />} />
           <Route path="published-posts" element={<PublishedPosts />} />
           <Route path="connected-accounts" element={<ConnectedAccounts />} />
+          <Route path="brand-settings" element={<BrandSettings />} />
+          <Route path="ai-settings" element={<AISettings />} />
+          <Route path="security" element={<SecuritySettings />} />
         </Route>
       </Routes>
     </BrowserRouter>

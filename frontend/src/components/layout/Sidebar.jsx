@@ -57,6 +57,7 @@ function Sidebar() {
 
       {/* Bottom */}
       <div className="sidebar-bottom">
+        <Link to="/brand-settings">⚙ Brand Settings</Link>
         <Link to="/settings">⚙ Settings</Link>
         <Link to="/logout">↪ Logout</Link>
       </div>
