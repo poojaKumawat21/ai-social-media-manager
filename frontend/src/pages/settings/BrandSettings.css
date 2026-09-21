@@ -1,0 +1,103 @@
+.brand-settings-page {
+  width: 100%;
+}
+
+.brand-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  gap: 20px;
+}
+
+.brand-settings-header h1 {
+  margin: 6px 0 8px;
+  font-size: 30px;
+}
+
+.brand-settings-header p {
+  margin: 0;
+  color: #8b8b96;
+}
+
+.brand-settings-card {
+  background: #15151c;
+  border: 1px solid #292934;
+  border-radius: 16px;
+  padding: 28px;
+  max-width: 900px;
+}
+
+.brand-settings-card-header {
+  margin-bottom: 26px;
+}
+
+.brand-settings-card-header h2 {
+  margin: 0 0 7px;
+  font-size: 20px;
+}
+
+.brand-settings-card-header p {
+  margin: 0;
+  color: #8b8b96;
+  font-size: 14px;
+}
+
+.brand-settings-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+
+.brand-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.brand-settings-field.full-width {
+  grid-column: 1 / -1;
+}
+
+.brand-settings-field label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.brand-settings-field input,
+.brand-settings-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #101016;
+  border: 1px solid #30303b;
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: #ffffff;
+  font-size: 14px;
+  outline: none;
+  font-family: inherit;
+}
+
+.brand-settings-field input:focus,
+.brand-settings-field textarea:focus {
+  border-color: #6d5dfc;
+}
+
+.brand-settings-field textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+@media (max-width: 700px) {
+  .brand-settings-header {
+    flex-direction: column;
+  }
+
+  .brand-settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .brand-settings-field.full-width {
+    grid-column: auto;
+  }
+}
