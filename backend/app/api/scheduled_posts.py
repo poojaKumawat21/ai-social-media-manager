@@ -4,6 +4,11 @@ from datetime import datetime
 
 from app.core.security import get_current_user
 from app.database.supabase import get_database_client
+# from app.services.scheduler_service import add_one_time_job
+from app.services.scheduler_service import (
+    add_one_time_job,
+    remove_one_time_job,
+)
 
 
 router = APIRouter(
@@ -133,6 +138,12 @@ def create_scheduled_post(
             .insert(schedule_data)
             .execute()
         )
+        scheduled_post = response.data[0]
+
+        add_one_time_job(
+            scheduled_post_id=scheduled_post["id"],
+            scheduled_at=scheduled_at,
+        )
 
         if not response.data:
             raise HTTPException(
@@ -171,6 +182,7 @@ def get_scheduled_posts(
             .table("scheduled_posts")
             .select("*")
             .eq("user_id", user_id)
+            .eq("status", "scheduled")
             .order("scheduled_at", desc=False)
             .execute()
         )
@@ -215,6 +227,9 @@ def cancel_scheduled_post(
                 status_code=404,
                 detail="Scheduled post not found or already processed.",
             )
+
+        # Remove the actual APScheduler job
+        remove_one_time_job(scheduled_post_id)
 
         return {
             "message": "Scheduled post cancelled successfully.",

@@ -73,6 +73,103 @@ def normalize_format(value):
 
 
 # =========================================================
+# PLATFORM NORMALIZER
+# =========================================================
+
+def normalize_platform(value):
+    if not value:
+        return "general"
+
+    value = str(value).strip().lower()
+
+    allowed_platforms = {
+        "instagram",
+        "linkedin",
+        "facebook",
+        "x",
+        "general",
+    }
+
+    if value not in allowed_platforms:
+        return "general"
+
+    return value
+
+
+# =========================================================
+# PLATFORM DESIGN RULES
+# =========================================================
+
+def get_platform_design_rules(platform="general"):
+    """
+    Platform-specific visual guidance.
+
+    These rules do NOT replace the planner.
+    They only tell the Design Agent how to adapt
+    the visual execution for the selected platform.
+    """
+
+    platform = normalize_platform(platform)
+
+    rules = {
+
+        "instagram": """
+- Optimize the visual for Instagram feed consumption.
+- Use a strong visual hook.
+- Prioritize mobile readability.
+- Keep important text concise and visually clear.
+- Prefer visually engaging compositions.
+- Avoid dense paragraphs inside the visual.
+- Carousel slides should be easy to scan and swipe.
+- Strong visual identity is useful, but do not use
+  generic Instagram templates repeatedly.
+- The design should feel social, modern and visual-first.
+- Do not make it look like a LinkedIn document.
+""",
+
+        "linkedin": """
+- Optimize the visual for LinkedIn feed consumption.
+- Use a clean, editorial and professional visual language.
+- Prioritize information hierarchy and readability.
+- Visuals should support professional insight or context.
+- Avoid overly playful or Instagram-style compositions.
+- Avoid excessive decorative elements.
+- Keep typography and spacing professional.
+- Carousel slides should feel structured and readable.
+- The design should look appropriate in a professional feed.
+""",
+
+        "facebook": """
+- Optimize the visual for Facebook feed consumption.
+- Prioritize immediate readability on mobile.
+- Use approachable and understandable visual composition.
+- Visuals can be expressive and conversational when appropriate.
+- Avoid excessive information density.
+- Make the main message understandable quickly.
+- Do not force a formal business-document aesthetic.
+""",
+
+        "x": """
+- Optimize the visual for X feed consumption.
+- Prioritize one strong visual idea.
+- Keep visual text minimal and immediately readable.
+- Avoid unnecessary visual complexity.
+- Strong contrast and clear hierarchy are important.
+- For carousels, keep slides focused and concise.
+- Do not turn the visual into a dense infographic.
+""",
+
+        "general": """
+- Create a professional social-media-ready visual.
+- Prioritize clarity, readability and topic relevance.
+- Let the actual content determine the design.
+"""
+    }
+
+    return rules[platform]
+
+
+# =========================================================
 # TEXT HELPERS
 # =========================================================
 
@@ -202,7 +299,6 @@ def _find_missing_sections(sections, slides):
                         if word in slide_text
                     )
 
-                    # Enough meaningful words survived
                     if matched >= max(
                         2,
                         min(4, len(words) // 2)
@@ -223,7 +319,8 @@ def _find_missing_sections(sections, slides):
 def _repair_missing_sections(
     result,
     missing_sections,
-    planner_summary
+    planner_summary,
+    platform="general"
 ):
     """
     Ask the AI to repair only missing planner sections.
@@ -236,10 +333,35 @@ def _repair_missing_sections(
     if not missing_sections:
         return result
 
+    platform = normalize_platform(platform)
+
+    platform_rules = get_platform_design_rules(
+        platform
+    )
+
     repair_prompt = f"""
 You are repairing an existing social media design plan.
 
 The Content Planner is authoritative.
+
+The selected platform is:
+
+{platform.upper()}
+
+=========================================================
+PLATFORM VISUAL REQUIREMENTS
+=========================================================
+
+{platform_rules}
+
+=========================================================
+IMPORTANT
+=========================================================
+
+Platform-specific visual requirements must NOT change
+the planner's meaning or remove planner sections.
+
+The planner remains the source of truth.
 
 Some planner sections are missing from the current
 Design Agent output.
@@ -319,6 +441,9 @@ The visual should remain topic-specific.
 Reserve a sensible text-safe area.
 
 Do not generate actual post text inside the AI visual.
+
+The selected platform should influence visual execution,
+but must never remove planner content.
 
 =========================================================
 OUTPUT
@@ -473,12 +598,44 @@ Return exactly:
 # DESIGN AGENT
 # =========================================================
 
-def create_design_plan(planner_data: dict):
+def create_design_plan(
+    planner_data: dict,
+    platform: str = "general"
+):
 
     if not isinstance(planner_data, dict):
         raise ValueError(
             "planner_data must be a dictionary"
         )
+    platform = normalize_platform(
+        platform or planner_data.get("platform")
+    )
+
+    platform_rules = get_platform_design_rules(
+        platform
+    )
+
+    # -----------------------------------------------------
+    # Platform
+    # -----------------------------------------------------
+
+    # Explicit function argument has priority.
+    # If an existing caller only passes planner_data,
+    # platform can still be recovered from planner_data.
+    if not platform or platform == "general":
+
+        platform = planner_data.get(
+            "platform",
+            "general"
+        )
+
+    platform = normalize_platform(
+    platform or planner_data.get("platform")
+    )
+
+    platform_rules = get_platform_design_rules(
+        platform
+    )
 
     # -----------------------------------------------------
     # Read planner output
@@ -588,6 +745,10 @@ def create_design_plan(planner_data: dict):
         "requires_research": requires_research,
         "reasoning": reasoning,
 
+        # Platform context
+        "platform": platform,
+        "platform_instructions": platform_rules,
+
         # Visual intelligence context
         "topic": planner_data.get(
             "topic",
@@ -621,6 +782,18 @@ The user provides the intent.
 The AI decides the best visual execution.
 
 =========================================================
+SELECTED PLATFORM
+=========================================================
+
+{platform.upper()}
+
+=========================================================
+PLATFORM-SPECIFIC VISUAL REQUIREMENTS
+=========================================================
+
+{platform_rules}
+
+=========================================================
 CONTENT PLANNER OUTPUT
 =========================================================
 
@@ -648,6 +821,9 @@ Do NOT assume every post needs gradients.
 Do NOT assume every post needs icons.
 
 Do NOT assume every post needs the same layout.
+
+The selected platform should influence the visual
+execution, but the planner remains authoritative.
 
 =========================================================
 FORMAT
@@ -1262,8 +1438,13 @@ FINAL REQUIREMENTS
 
 29. Preserve readability and content hierarchy.
 
-30. Existing planner-section coverage rules have highest
-    priority and must remain intact.
+30. Platform-specific visual adaptation must NEVER
+    remove or change planner sections.
+
+31. The planner's selected format MUST be preserved.
+
+32. The platform should influence visual execution,
+    not content meaning.
 """
 
     # =====================================================
@@ -1349,12 +1530,6 @@ FINAL REQUIREMENTS
     )
 
     # Always respect planner format.
-    #
-    # The Design Agent is allowed to make creative
-    # decisions INSIDE the planner's selected format,
-    # but it must not unexpectedly change carousel
-    # into single post or vice versa.
-
     result["format"] = content_format
 
     # =====================================================
@@ -1582,7 +1757,6 @@ FINAL REQUIREMENTS
             ""
         )
 
-        # New visual intelligence fields
         slide.setdefault(
             "visual_subject",
             ""
@@ -1714,7 +1888,8 @@ FINAL REQUIREMENTS
             temporary_result = _repair_missing_sections(
                 result=temporary_result,
                 missing_sections=missing_sections,
-                planner_summary=planner_summary
+                planner_summary=planner_summary,
+                platform=platform
             )
 
             valid_slides = temporary_result.get(
@@ -1747,11 +1922,6 @@ FINAL REQUIREMENTS
         # -------------------------------------------------
         # Sensible upper protection
         # -------------------------------------------------
-
-        # This is NOT a fixed slide count.
-        #
-        # It only prevents catastrophic model output
-        # from creating hundreds of slides.
 
         max_allowed_slides = max(
             12,
@@ -1872,6 +2042,16 @@ FINAL REQUIREMENTS
         "placement",
         "bottom_right"
     )
+
+    # =====================================================
+    # FINAL PLATFORM METADATA
+    # =====================================================
+
+    result["platform"] = platform
+
+    # Keep platform information available to the
+    # downstream renderer/image-generation layer.
+    result["platform_instructions"] = platform_rules
 
     # =====================================================
     # FINAL RESULT

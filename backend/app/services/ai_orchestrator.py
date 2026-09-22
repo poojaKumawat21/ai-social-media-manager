@@ -52,38 +52,21 @@ def run_ai_pipeline(
     topic: str,
     description: str = "",
     previous_styles=None,
-    previous_posts=None
+    previous_posts=None,
+    platform: str = "general"
 ):
     """
     Run the complete AI social media generation pipeline.
 
-    User provides:
-        - topic
-        - optional description
+    platform:
+        - instagram
+        - linkedin
+        - facebook
+        - x
+        - general
 
-    AI decides:
-        - niche
-        - audience
-        - tone
-        - style
-        - format
-        - post type
-        - content structure
-        - research requirement
-        - visual direction
-        - design
-        - layout
-        - colors
-        - theme
-
-    Validation agents check:
-        - duplicate content
-        - safety
-        - factual reliability
-        - overall quality
-
-    Renderer:
-        - converts AI design decisions into final images
+    Existing callers that do not provide platform will
+    continue using "general".
     """
 
     # =====================================================
@@ -99,6 +82,94 @@ def run_ai_pipeline(
     previous_styles = previous_styles or []
     previous_posts = previous_posts or []
 
+    # Normalize platform
+    platform = (platform or "general").strip().lower()
+
+    allowed_platforms = {
+        "instagram",
+        "linkedin",
+        "facebook",
+        "x",
+        "general",
+    }
+
+    if platform not in allowed_platforms:
+        raise ValueError(
+            f"Unsupported platform: {platform}"
+        )
+
+    # =====================================================
+    # PLATFORM INSTRUCTIONS
+    # =====================================================
+
+    platform_instructions = {
+        "instagram": """
+Create content specifically for Instagram.
+
+Instagram requirements:
+- Strong visual-first concept.
+- Caption should be engaging and mobile-friendly.
+- Use a conversational social-media tone.
+- Create a strong opening hook.
+- Keep paragraphs short.
+- Generate relevant Instagram hashtags.
+- Encourage saves, shares, comments or follows when appropriate.
+- Do not write like a LinkedIn article.
+- Visual design should be optimized for Instagram.
+""",
+
+        "linkedin": """
+Create content specifically for LinkedIn.
+
+LinkedIn requirements:
+- Professional but human tone.
+- Strong opening hook.
+- Focus on insight, learning, business value or professional relevance.
+- Use short readable paragraphs.
+- Avoid excessive emojis.
+- Avoid excessive hashtags.
+- Do not write like an Instagram caption.
+- Visual design should be clean, professional and suitable for LinkedIn.
+""",
+
+        "facebook": """
+Create content specifically for Facebook.
+
+Facebook requirements:
+- Conversational and approachable.
+- Strong opening.
+- Easy to read.
+- Encourage comments and meaningful engagement.
+- Use relevant hashtags naturally.
+- Visual should be suitable for Facebook.
+""",
+
+        "x": """
+Create content specifically for X.
+
+X requirements:
+- Concise and immediately engaging.
+- Strong hook.
+- Keep the text short and focused.
+- Use only a small number of relevant hashtags.
+- Avoid unnecessary long-form writing.
+- Visual should be suitable for X.
+""",
+
+        "general": ""
+    }
+
+    platform_instruction = platform_instructions[platform]
+
+    platform_description = f"""
+{description}
+
+PLATFORM:
+{platform.upper()}
+
+{platform_instruction}
+"""
+
     # =====================================================
     # STEP 1 — CONTENT PLANNER
     # =====================================================
@@ -107,8 +178,16 @@ def run_ai_pipeline(
 
     planner = plan_social_media_post(
         topic=topic,
-        description=description
+        description=platform_description
     )
+
+    if not isinstance(planner, dict):
+        planner = {}
+
+    # Keep platform information available to every
+    # downstream agent without changing existing planner data.
+    planner["platform"] = platform
+    planner["platform_instructions"] = platform_instruction
 
     # =====================================================
     # STEP 2 — STYLE AGENT
@@ -118,10 +197,13 @@ def run_ai_pipeline(
 
     style_result = choose_style(
         topic=topic,
-        description=description,
+        description=platform_description,
         planner_data=planner,
         previous_styles=previous_styles
     )
+
+    if not isinstance(style_result, dict):
+        style_result = {}
 
     selected_style = style_result.get(
         "style",
@@ -133,6 +215,9 @@ def run_ai_pipeline(
 
     planner["selected_style"] = selected_style
 
+    # Keep platform available in style result as well.
+    style_result["platform"] = platform
+
     # =====================================================
     # STEP 3 — RESEARCH AGENT
     # =====================================================
@@ -143,6 +228,9 @@ def run_ai_pipeline(
         topic=topic,
         planner_data=planner
     )
+
+    if not isinstance(research, dict):
+        research = {}
 
     # =====================================================
     # STEP 4 — CONTENT GENERATOR
@@ -171,9 +259,24 @@ def run_ai_pipeline(
         language=language,
         tone=tone,
         style=selected_style,
-        planner_data=planner,
-        research_data=research
+        planner_data={
+            **planner,
+            "platform": platform,
+            "platform_instructions": platform_instruction,
+        },
+        research_data=research,
+
+        # IMPORTANT:
+        # Explicit platform argument so the updated
+        # content_generator applies platform-specific rules.
+        platform=platform
     )
+
+    if not isinstance(content, dict):
+        content = {}
+
+    # Keep platform metadata synchronized.
+    content["platform"] = platform
 
     # =====================================================
     # STEP 5 — DUPLICATE CHECK
@@ -181,21 +284,22 @@ def run_ai_pipeline(
 
     print("\n♻️ STEP 5 — Duplicate Check")
 
-    # The duplicate agent receives the complete current
-    # content plus previous user posts.
-
     current_content = {
         "topic": topic,
         "caption": content.get("caption", ""),
         "post_idea": content.get("post_idea", ""),
         "hashtags": content.get("hashtags", []),
-        "style": selected_style
+        "style": selected_style,
+        "platform": platform
     }
 
     duplicate_result = check_duplicate_content(
         current_content=current_content,
         previous_posts=previous_posts
     )
+
+    if not isinstance(duplicate_result, dict):
+        duplicate_result = {}
 
     print(
         f"Duplicate decision: "
@@ -236,6 +340,9 @@ def run_ai_pipeline(
         news_source=news_source
     )
 
+    if not isinstance(safety_result, dict):
+        safety_result = {}
+
     # =====================================================
     # STEP 7 — FACT CHECK
     # =====================================================
@@ -248,6 +355,9 @@ def run_ai_pipeline(
         news_source=news_source
     )
 
+    if not isinstance(fact_check_result, dict):
+        fact_check_result = {}
+
     # =====================================================
     # STEP 8 — QUALITY GATE
     # =====================================================
@@ -255,10 +365,6 @@ def run_ai_pipeline(
     print("\n🚦 STEP 8 — Quality Gate")
 
     quality_issues = []
-
-    # -----------------------------------------------------
-    # Duplicate
-    # -----------------------------------------------------
 
     duplicate_decision = duplicate_result.get(
         "decision"
@@ -276,10 +382,6 @@ def run_ai_pipeline(
             "Generated content has noticeable similarity to previous content."
         )
 
-    # -----------------------------------------------------
-    # Safety
-    # -----------------------------------------------------
-
     if not safety_result.get(
         "safe",
         False
@@ -291,10 +393,6 @@ def run_ai_pipeline(
                 []
             )
         )
-
-    # -----------------------------------------------------
-    # Fact Check
-    # -----------------------------------------------------
 
     fact_decision = fact_check_result.get(
         "decision"
@@ -309,16 +407,9 @@ def run_ai_pipeline(
             "Fact verification requires review."
         )
 
-    # -----------------------------------------------------
-    # Approval Status
-    # -----------------------------------------------------
-
     if quality_issues:
-
         approval_status = "review_required"
-
     else:
-
         approval_status = "approved"
 
     # =====================================================
@@ -332,7 +423,11 @@ def run_ai_pipeline(
 
         "topic": topic,
 
-        "description": description,
+        "description": platform_description,
+
+        "platform": platform,
+
+        "platform_instructions": platform_instruction,
 
         "style_decision": style_result,
 
@@ -348,8 +443,27 @@ def run_ai_pipeline(
         }
     }
 
+    # IMPORTANT:
+    # Explicit platform argument.
+    #
+    # This makes sure the design agent receives the
+    # selected platform directly.
     design = create_design_plan(
-        design_input
+        design_input,
+        platform=platform
+    )
+
+    if not isinstance(design, dict):
+        design = {}
+
+    # Keep platform metadata synchronized.
+    design["platform"] = platform
+
+    design["platform_instructions"] = (
+        design.get(
+            "platform_instructions"
+        )
+        or platform_instruction
     )
 
     # =====================================================
@@ -360,11 +474,17 @@ def run_ai_pipeline(
 
     quality_result = check_quality(
         topic=topic,
-        description=description,
+        description=platform_description,
         content=content,
-        planner_data=planner,
+        planner_data={
+            **planner,
+            "platform": platform,
+        },
         design_data=design
     )
+
+    if not isinstance(quality_result, dict):
+        quality_result = {}
 
     # =====================================================
     # STEP 11 — POST RENDERER
@@ -375,6 +495,9 @@ def run_ai_pipeline(
     rendered_post = render_social_post(
         design_plan=design
     )
+
+    if not isinstance(rendered_post, dict):
+        rendered_post = {}
 
     # =====================================================
     # STEP 12 — UPLOAD FINAL RENDERED IMAGES
@@ -443,9 +566,71 @@ def run_ai_pipeline(
                 }
             )
 
-    # =====================================================
+    # =========================================================
+    # FINAL PLATFORM METADATA NORMALIZATION
+    # =========================================================
+    #
+    # IMPORTANT:
+    # This does NOT regenerate anything.
+    # It only makes sure every AI-stage result carries
+    # the same selected platform.
+    #
+    # This fixes cases where an inner agent returns
+    # "platform": "general" even though the actual
+    # pipeline was running for Instagram/LinkedIn.
+    # =========================================================
+
+    platform = (platform or "general").strip().lower()
+
+    if platform not in allowed_platforms:
+        platform = "general"
+
+    # ---------------------------------------------------------
+    # Planner
+    # ---------------------------------------------------------
+
+    if isinstance(planner, dict):
+
+        planner["platform"] = platform
+
+        planner["platform_instructions"] = (
+            platform_instruction
+        )
+
+    # ---------------------------------------------------------
+    # Style
+    # ---------------------------------------------------------
+
+    if isinstance(style_result, dict):
+
+        style_result["platform"] = platform
+
+    # ---------------------------------------------------------
+    # Content
+    # ---------------------------------------------------------
+
+    if isinstance(content, dict):
+
+        content["platform"] = platform
+
+    # ---------------------------------------------------------
+    # Design
+    # ---------------------------------------------------------
+
+    if isinstance(design, dict):
+
+        design["platform"] = platform
+
+        design["platform_instructions"] = (
+            design.get(
+                "platform_instructions"
+            )
+            or platform_instruction
+        )
+
+    # =========================================================
     # FINAL RESULT
-    # =====================================================
+    # =========================================================
 
     print("\n✅ AI PIPELINE COMPLETED")
 
@@ -453,6 +638,8 @@ def run_ai_pipeline(
         "topic": topic,
 
         "description": description,
+
+        "platform": platform,
 
         # -----------------------------
         # AI DECISIONS

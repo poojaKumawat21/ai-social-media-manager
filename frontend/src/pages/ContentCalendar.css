@@ -289,3 +289,46 @@
   }
 
 }
+/* Fix scheduled post overflow inside calendar day */
+.calendar-day {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.calendar-posts {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.calendar-post {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.calendar-post-title {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-post-meta {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.calendar-post-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

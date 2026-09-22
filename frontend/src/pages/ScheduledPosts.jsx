@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import api from "../services/api";
 import {
   CalendarClock,
   Search,
@@ -11,51 +12,52 @@ import {
 } from "lucide-react";
 import "./ScheduledPosts.css";
 
-const initialPosts = [
-  {
-    id: 1,
-    title: "The Future of Generative AI",
-    content:
-      "Generative AI is transforming the way businesses create, communicate and grow.",
-    platform: "Instagram",
-    date: "Sep 22, 2026",
-    time: "10:30 AM",
-    status: "Scheduled",
-  },
-  {
-    id: 2,
-    title: "5 AI Trends to Watch",
-    content:
-      "Here are five AI trends that creators and businesses should keep an eye on.",
-    platform: "LinkedIn",
-    date: "Sep 23, 2026",
-    time: "09:00 AM",
-    status: "Scheduled",
-  },
-  {
-    id: 3,
-    title: "Build Smarter With AI",
-    content:
-      "AI tools can help you save time and focus more on creative work.",
-    platform: "Facebook",
-    date: "Sep 24, 2026",
-    time: "06:30 PM",
-    status: "Scheduled",
-  },
-  {
-    id: 4,
-    title: "AI Productivity Tips",
-    content:
-      "Simple ways to use AI to improve your daily productivity and workflow.",
-    platform: "X",
-    date: "Sep 25, 2026",
-    time: "08:00 PM",
-    status: "Scheduled",
-  },
-];
+// const initialPosts = [
+//   {
+//     id: 1,
+//     title: "The Future of Generative AI",
+//     content:
+//       "Generative AI is transforming the way businesses create, communicate and grow.",
+//     platform: "Instagram",
+//     date: "Sep 22, 2026",
+//     time: "10:30 AM",
+//     status: "Scheduled",
+//   },
+//   {
+//     id: 2,
+//     title: "5 AI Trends to Watch",
+//     content:
+//       "Here are five AI trends that creators and businesses should keep an eye on.",
+//     platform: "LinkedIn",
+//     date: "Sep 23, 2026",
+//     time: "09:00 AM",
+//     status: "Scheduled",
+//   },
+//   {
+//     id: 3,
+//     title: "Build Smarter With AI",
+//     content:
+//       "AI tools can help you save time and focus more on creative work.",
+//     platform: "Facebook",
+//     date: "Sep 24, 2026",
+//     time: "06:30 PM",
+//     status: "Scheduled",
+//   },
+//   {
+//     id: 4,
+//     title: "AI Productivity Tips",
+//     content:
+//       "Simple ways to use AI to improve your daily productivity and workflow.",
+//     platform: "X",
+//     date: "Sep 25, 2026",
+//     time: "08:00 PM",
+//     status: "Scheduled",
+//   },
+// ];
 
 function ScheduledPosts() {
-  const [posts, setPosts] = useState(initialPosts);
+  // const [posts, setPosts] = useState(initialPosts);
+  const [posts, setPosts] = useState([]);
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -81,20 +83,35 @@ function ScheduledPosts() {
     return <CalendarClock size={18} />;
   };
 
-  const handleDelete = (id) => {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this scheduled post?"
-    );
+  const handleDelete = async (id) => {
+  const confirmed = window.confirm(
+    "Are you sure you want to cancel this scheduled post?"
+  );
 
-    if (!confirmed) return;
+  if (!confirmed) return;
+
+  try {
+    await api.delete(`/scheduled-posts/${id}`);
 
     setPosts((currentPosts) =>
       currentPosts.filter((post) => post.id !== id)
     );
 
     setOpenMenu(null);
-  };
 
+    alert("Scheduled post cancelled successfully.");
+  } catch (error) {
+    console.error(
+      "Cancel scheduled post error:",
+      error
+    );
+
+    alert(
+      error.message ||
+        "Unable to cancel scheduled post."
+    );
+  }
+};
   const handleEdit = (post) => {
     alert(`Edit "${post.title}"`);
     setOpenMenu(null);
@@ -103,7 +120,81 @@ function ScheduledPosts() {
   const handleSchedule = () => {
     alert("Schedule Post feature will be connected later.");
   };
+useEffect(() => {
+  const fetchScheduledPosts = async () => {
+    try {
+      const scheduledResult = await api.get("/scheduled-posts");
+      const postsResult = await api.get("/posts");
 
+      const allPosts = postsResult.posts || [];
+
+      const postMap = new Map(
+        allPosts.map((post) => [post.id, post])
+      );
+
+      const formattedPosts = (
+        scheduledResult.scheduled_posts || []
+      ).map((scheduledPost) => {
+        const post = postMap.get(scheduledPost.post_id) || {};
+
+        const scheduledDate = new Date(
+          scheduledPost.scheduled_at
+        );
+
+        return {
+          id: scheduledPost.id,
+          postId: scheduledPost.post_id,
+
+          title:
+            post.post_idea ||
+            post.topic ||
+            "Scheduled Post",
+
+          content: post.caption || "",
+
+          platform:
+            scheduledPost.platform === "linkedin"
+              ? "LinkedIn"
+              : scheduledPost.platform,
+
+          date: scheduledDate.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+
+          time: scheduledDate.toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+          }),
+
+          status:
+            scheduledPost.status === "scheduled"
+              ? "Scheduled"
+              : scheduledPost.status,
+        };
+      });
+
+      setPosts(formattedPosts);
+    } catch (error) {
+      console.error(
+        "Failed to fetch scheduled posts:",
+        error
+      );
+    }
+  };
+
+    fetchScheduledPosts();
+
+  const refreshInterval = setInterval(
+    fetchScheduledPosts,
+    10000
+  );
+
+  return () => {
+    clearInterval(refreshInterval);
+  };
+}, []);
   return (
     <div className="scheduled-page">
       {/* HEADER */}

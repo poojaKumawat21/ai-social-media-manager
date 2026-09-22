@@ -15,9 +15,9 @@ if not GROQ_API_KEY:
 client = Groq(api_key=GROQ_API_KEY)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Helper: Clean AI JSON Response
-# ---------------------------------------------------------
+# =========================================================
 
 def clean_json_response(raw_text: str):
     raw_text = raw_text.strip()
@@ -54,17 +54,49 @@ def clean_json_response(raw_text: str):
     return json.loads(raw_text)
 
 
-# ---------------------------------------------------------
-# Helper: Normalize Hashtags
-# ---------------------------------------------------------
+# =========================================================
+# Helper: Normalize Platform
+# =========================================================
 
-def normalize_hashtags(hashtags):
+def normalize_platform(platform="general"):
+    """
+    Safely normalize the requested platform.
+
+    Existing callers that do not provide a platform
+    continue using "general".
+    """
+
+    platform = (platform or "general").strip().lower()
+
+    allowed_platforms = {
+        "instagram",
+        "linkedin",
+        "facebook",
+        "x",
+        "general",
+    }
+
+    if platform not in allowed_platforms:
+        return "general"
+
+    return platform
+
+
+# =========================================================
+# Helper: Normalize Hashtags
+# =========================================================
+
+def normalize_hashtags(hashtags, platform="general"):
+
     if not isinstance(hashtags, list):
         return []
+
+    platform = normalize_platform(platform)
 
     cleaned = []
 
     for tag in hashtags:
+
         if not isinstance(tag, str):
             continue
 
@@ -79,14 +111,23 @@ def normalize_hashtags(hashtags):
         if tag not in cleaned:
             cleaned.append(tag)
 
-    return cleaned[:5]
+    limits = {
+        "instagram": 5,
+        "linkedin": 3,
+        "facebook": 5,
+        "x": 2,
+        "general": 5,
+    }
+
+    return cleaned[:limits.get(platform, 5)]
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Helper: Safe Text
-# ---------------------------------------------------------
+# =========================================================
 
 def safe_text(value, default=""):
+
     if value is None:
         return default
 
@@ -96,9 +137,135 @@ def safe_text(value, default=""):
     return value.strip()
 
 
-# ---------------------------------------------------------
+# =========================================================
+# Helper: Platform Rules
+# =========================================================
+
+def get_platform_content_rules(platform="general"):
+
+    platform = normalize_platform(platform)
+
+    rules = {
+
+        "instagram": """
+- Write for Instagram users.
+- Make the caption visually engaging and mobile-friendly.
+- Use a conversational social-media style.
+- The opening should be attention-grabbing.
+- Keep paragraphs short and easy to scan.
+- Hashtags should be highly relevant to the topic.
+- Do not write like a LinkedIn article.
+- Do not use excessive professional/business language.
+- The caption should complement the visual rather than repeat every visual detail.
+""",
+
+        "linkedin": """
+- Write for LinkedIn users.
+- Use professional, insightful and value-oriented language.
+- Prioritize useful context and professional readability.
+- Use short paragraphs for easy feed reading.
+- Focus on the insight, lesson, implication or professional relevance.
+- Avoid excessive promotional language.
+- Avoid Instagram-style phrasing.
+- Avoid emoji-heavy writing.
+- Do not make unsupported professional claims.
+""",
+
+        "facebook": """
+- Write for Facebook users.
+- Keep the language conversational and approachable.
+- Make the content easy to read on mobile.
+- Encourage natural discussion when appropriate.
+- Keep the message understandable without requiring the visual.
+- Avoid sounding like a formal LinkedIn article.
+""",
+
+        "x": """
+- Write for X users.
+- Keep the message concise.
+- Make the opening immediately meaningful.
+- Avoid unnecessary long-form explanation.
+- Focus on one clear idea.
+- Use only highly relevant hashtags.
+- Do not add filler just to increase length.
+""",
+
+        "general": """
+- Create natural social-media content.
+- Keep the content concise, clear and engaging.
+- Match the requested tone, language and style.
+"""
+    }
+
+    return rules.get(
+        platform,
+        rules["general"]
+    )
+
+
+# =========================================================
+# Helper: Platform Hashtag Fallback
+# =========================================================
+
+def get_hashtag_fallbacks(topic, platform="general"):
+
+    platform = normalize_platform(platform)
+
+    topic_clean = re.sub(
+        r"[^a-zA-Z0-9]",
+        "",
+        str(topic)
+    )
+
+    if platform == "instagram":
+
+        return [
+            f"#{topic_clean}",
+            "#Instagram",
+            "#ContentCreation",
+            "#DigitalContent",
+            "#AI"
+        ]
+
+    if platform == "linkedin":
+
+        return [
+            f"#{topic_clean}",
+            "#LinkedIn",
+            "#Technology",
+            "#Innovation",
+            "#AI"
+        ]
+
+    if platform == "facebook":
+
+        return [
+            f"#{topic_clean}",
+            "#Facebook",
+            "#ContentCreation",
+            "#Technology",
+            "#AI"
+        ]
+
+    if platform == "x":
+
+        return [
+            f"#{topic_clean}",
+            "#AI"
+        ]
+
+    return [
+        f"#{topic_clean}",
+        "#SocialMedia",
+        "#ContentCreation",
+        "#DigitalContent",
+        "#AI"
+    ]
+
+
+# =========================================================
 # Generate Normal Social Media Post
-# ---------------------------------------------------------
+# =========================================================
 
 def generate_post(
     niche,
@@ -107,10 +274,24 @@ def generate_post(
     tone,
     style,
     planner_data=None,
-    research_data=None
+    research_data=None,
+    platform="general"
 ):
+
     planner_data = planner_data or {}
     research_data = research_data or {}
+
+    # -----------------------------------------------------
+    # Normalize platform safely
+    # -----------------------------------------------------
+
+    platform = normalize_platform(
+        platform or planner_data.get("platform")
+    )
+
+    platform_rules = get_platform_content_rules(
+        platform
+    )
 
     # -----------------------------------------------------
     # Read AI planner decisions
@@ -118,7 +299,10 @@ def generate_post(
 
     post_type = planner_data.get(
         "post_type",
-        planner_data.get("format", "single_post")
+        planner_data.get(
+            "format",
+            "single_post"
+        )
     )
 
     post_format = planner_data.get(
@@ -153,7 +337,10 @@ def generate_post(
 
     cta = planner_data.get(
         "CTA",
-        planner_data.get("cta", "")
+        planner_data.get(
+            "cta",
+            ""
+        )
     )
 
     requires_research = planner_data.get(
@@ -171,18 +358,35 @@ def generate_post(
     # -----------------------------------------------------
 
     structure_context = {
+
         "post_type": post_type,
+
         "format": post_format,
+
         "headline": headline,
+
         "subheadline": subheadline,
+
         "introduction": introduction,
+
         "sections": sections,
+
         "section_count": len(sections),
+
         "key_takeaway": key_takeaway,
+
         "cta": cta,
+
         "requires_research": requires_research,
-        "source_required": source_required
+
+        "source_required": source_required,
+
+        "platform": platform
     }
+
+    # -----------------------------------------------------
+    # Prompt
+    # -----------------------------------------------------
 
     prompt = f"""
 You are the CONTENT AGENT inside an autonomous
@@ -221,11 +425,45 @@ Tone:
 Style:
 {style}
 
+Platform:
+{platform}
+
 ---------------------------------------------------------
 AI PLANNER DECISION
 ---------------------------------------------------------
 
-{json.dumps(structure_context, ensure_ascii=False, indent=2)}
+{json.dumps(
+    structure_context,
+    ensure_ascii=False,
+    indent=2
+)}
+
+---------------------------------------------------------
+PLATFORM-SPECIFIC REQUIREMENTS
+---------------------------------------------------------
+
+The same topic may be published on different platforms.
+
+You MUST create content specifically for the requested
+platform while preserving the planner's structure.
+
+Platform:
+{platform}
+
+{platform_rules}
+
+IMPORTANT:
+
+Platform-specific adaptation means changing the way the
+content is communicated for that platform.
+
+It does NOT mean changing:
+- the planner's sections
+- the factual meaning
+- the number of items
+- the selected post format
+- the intended topic
+- the planner's CTA decision
 
 ---------------------------------------------------------
 CONTENT RULES
@@ -253,24 +491,10 @@ CONTENT RULES
 
 4. NUMERIC CONSISTENCY IS MANDATORY.
 
-   Example:
-   If section_count = 7:
-
-   CORRECT:
-   "Discover 7 simple ways to protect your data."
-
-   WRONG:
-   "Discover 5 simple ways..."
-
-   Never create a number that conflicts with the planner.
-
 5. The post_idea MUST describe the SAME content
    that the caption and planner describe.
 
-6. If the planner has 7 security topics, the post_idea
-   must not describe a different list of 5 topics.
-
-7. Do NOT invent:
+6. Do NOT invent:
    - products
    - guides
    - downloadable resources
@@ -283,28 +507,54 @@ CONTENT RULES
    - factual claims
    - events
    - organizations
+
    unless they are provided by the planner/research
    context.
 
-8. CTA is optional.
+7. CTA is optional.
 
    If the planner has no CTA:
    - do not invent one
    - a natural caption can end without a CTA.
 
-9. Keep the caption engaging but natural.
+8. Keep the caption engaging but natural.
 
-10. Avoid generic filler.
+9. Avoid generic filler.
 
-11. Match the requested language, tone and style.
+10. Match the requested language, tone and style.
 
-12. Do not use markdown.
+11. Do not use markdown.
 
-13. Do not add emojis unless they naturally fit.
+12. Do not add emojis unless they naturally fit.
 
-14. Generate EXACTLY 5 relevant hashtags.
+13. Generate relevant hashtags appropriate for the
+    selected platform.
 
-15. Hashtags must match the actual topic.
+14. Hashtags must match the actual topic.
+
+15. Do not create platform-specific hashtags that are
+    unrelated to the actual topic.
+
+---------------------------------------------------------
+HASHTAG REQUIREMENT
+---------------------------------------------------------
+
+Instagram:
+5 hashtags
+
+LinkedIn:
+3 hashtags
+
+Facebook:
+5 hashtags
+
+X:
+2 hashtags
+
+General:
+5 hashtags
+
+Return the appropriate number for the selected platform.
 
 ---------------------------------------------------------
 OUTPUT
@@ -319,9 +569,7 @@ Use exactly this structure:
     "hashtags": [
         "#hashtag1",
         "#hashtag2",
-        "#hashtag3",
-        "#hashtag4",
-        "#hashtag5"
+        "#hashtag3"
     ],
     "post_idea": "short description that accurately matches the planner and caption"
 }}
@@ -330,77 +578,128 @@ Do not include anything outside the JSON.
 """
 
     response = client.chat.completions.create(
+
         model="openai/gpt-oss-120b",
+
         messages=[
+
             {
                 "role": "system",
                 "content": (
                     "You are the Content Agent of an autonomous "
                     "social media manager. Follow planner decisions "
                     "exactly and maintain strict consistency between "
-                    "caption, post idea and content structure."
+                    "caption, post idea and content structure. "
+                    "Adapt the communication style to the requested "
+                    "platform without changing the planner's intent."
                 )
             },
+
             {
                 "role": "user",
                 "content": prompt
             }
+
         ],
+
         temperature=0.65
     )
 
     raw_content = response.choices[0].message.content
 
-    result = clean_json_response(raw_content)
-
-    hashtags = normalize_hashtags(
-        result.get("hashtags", [])
+    result = clean_json_response(
+        raw_content
     )
 
     # -----------------------------------------------------
-    # Safety fallback for hashtags
+    # Platform-specific hashtag normalization
     # -----------------------------------------------------
 
-    if len(hashtags) < 5:
-        generated = [
-            f"#{re.sub(r'[^a-zA-Z0-9]', '', str(topic))}",
-            "#SocialMedia",
-            "#ContentCreation",
-            "#DigitalContent",
-            "#AI"
-        ]
+    hashtags = normalize_hashtags(
+        result.get("hashtags", []),
+        platform=platform
+    )
+
+    hashtag_limit = {
+        "instagram": 5,
+        "linkedin": 3,
+        "facebook": 5,
+        "x": 2,
+        "general": 5,
+    }.get(
+        platform,
+        5
+    )
+
+    # -----------------------------------------------------
+    # Hashtag fallback
+    # -----------------------------------------------------
+
+    if len(hashtags) < hashtag_limit:
+
+        generated = get_hashtag_fallbacks(
+            topic=topic,
+            platform=platform
+        )
 
         for tag in generated:
+
             if tag not in hashtags:
                 hashtags.append(tag)
 
-            if len(hashtags) == 5:
+            if len(hashtags) == hashtag_limit:
                 break
 
+    # -----------------------------------------------------
+    # FINAL CONTENT RESULT
+    # -----------------------------------------------------
+
     return {
+
         "caption": safe_text(
-            result.get("caption", "")
+            result.get(
+                "caption",
+                ""
+            )
         ),
-        "hashtags": hashtags[:5],
+
+        "hashtags": hashtags[:hashtag_limit],
+
         "post_idea": safe_text(
-            result.get("post_idea", "")
+            result.get(
+                "post_idea",
+                ""
+            )
         ),
+
         "style": style,
+
         "language": language,
+
         "tone": tone,
+
         "niche": niche,
+
         "topic": topic,
+
+        # IMPORTANT:
+        # Always return the actual selected platform.
+        "platform": platform,
+
         "content_structure": {
+
             "post_type": post_type,
+
             "format": post_format,
+
             "section_count": len(sections)
         }
     }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # Generate Post From News
-# ---------------------------------------------------------
+# =========================================================
 
 def generate_post_from_news(
     news_title,
@@ -410,10 +709,24 @@ def generate_post_from_news(
     tone="Professional",
     style="Educational",
     planner_data=None,
-    research_data=None
+    research_data=None,
+    platform="general"
 ):
+
     planner_data = planner_data or {}
     research_data = research_data or {}
+
+    # -----------------------------------------------------
+    # Normalize platform safely
+    # -----------------------------------------------------
+
+    platform = normalize_platform(
+        platform or planner_data.get("platform")
+    )
+
+    platform_rules = get_platform_content_rules(
+        platform
+    )
 
     # -----------------------------------------------------
     # Research context
@@ -421,7 +734,10 @@ def generate_post_from_news(
 
     research_summary = research_data.get(
         "summary",
-        research_data.get("news_summary", "")
+        research_data.get(
+            "news_summary",
+            ""
+        )
     )
 
     facts = research_data.get(
@@ -440,7 +756,10 @@ def generate_post_from_news(
 
     post_type = planner_data.get(
         "post_type",
-        planner_data.get("format", "single_post")
+        planner_data.get(
+            "format",
+            "single_post"
+        )
     )
 
     post_format = planner_data.get(
@@ -454,19 +773,49 @@ def generate_post_from_news(
     )
 
     structure_context = {
+
         "post_type": post_type,
+
         "format": post_format,
-        "headline": planner_data.get("headline", ""),
-        "subheadline": planner_data.get("subheadline", ""),
-        "introduction": planner_data.get("introduction", ""),
+
+        "headline": planner_data.get(
+            "headline",
+            ""
+        ),
+
+        "subheadline": planner_data.get(
+            "subheadline",
+            ""
+        ),
+
+        "introduction": planner_data.get(
+            "introduction",
+            ""
+        ),
+
         "sections": sections,
+
         "section_count": len(sections),
-        "key_takeaway": planner_data.get("key_takeaway", ""),
+
+        "key_takeaway": planner_data.get(
+            "key_takeaway",
+            ""
+        ),
+
         "cta": planner_data.get(
             "CTA",
-            planner_data.get("cta", "")
-        )
+            planner_data.get(
+                "cta",
+                ""
+            )
+        ),
+
+        "platform": platform
     }
+
+    # -----------------------------------------------------
+    # News prompt
+    # -----------------------------------------------------
 
     prompt = f"""
 You are the CONTENT AGENT of an autonomous social
@@ -489,10 +838,18 @@ Research Summary:
 {research_summary}
 
 Research Facts:
-{json.dumps(facts, ensure_ascii=False, indent=2)}
+{json.dumps(
+    facts,
+    ensure_ascii=False,
+    indent=2
+)}
 
 Research Sources:
-{json.dumps(sources, ensure_ascii=False, indent=2)}
+{json.dumps(
+    sources,
+    ensure_ascii=False,
+    indent=2
+)}
 
 ---------------------------------------------------------
 USER / AI CONTEXT
@@ -510,8 +867,18 @@ Tone:
 Style:
 {style}
 
+Platform:
+{platform}
+
+Platform-Specific Requirements:
+{platform_rules}
+
 Planner Structure:
-{json.dumps(structure_context, ensure_ascii=False, indent=2)}
+{json.dumps(
+    structure_context,
+    ensure_ascii=False,
+    indent=2
+)}
 
 ---------------------------------------------------------
 STRICT RULES
@@ -545,13 +912,37 @@ STRICT RULES
 
 8. Keep the news summary factual and concise.
 
-9. Generate exactly 5 relevant hashtags.
+9. Generate relevant hashtags appropriate for the
+   selected platform.
 
 10. Match language, tone and style.
 
 11. Do not use markdown.
 
-12. Return ONLY valid JSON.
+12. Adapt the communication style to the selected
+    platform without changing the factual meaning
+    or planner structure.
+
+13. Return ONLY valid JSON.
+
+---------------------------------------------------------
+HASHTAG REQUIREMENT
+---------------------------------------------------------
+
+Instagram:
+5 hashtags
+
+LinkedIn:
+3 hashtags
+
+Facebook:
+5 hashtags
+
+X:
+2 hashtags
+
+General:
+5 hashtags
 
 ---------------------------------------------------------
 OUTPUT
@@ -562,9 +953,7 @@ OUTPUT
     "hashtags": [
         "#hashtag1",
         "#hashtag2",
-        "#hashtag3",
-        "#hashtag4",
-        "#hashtag5"
+        "#hashtag3"
     ],
     "post_idea": "accurate visual/post idea",
     "news_summary": "short factual summary supported by research"
@@ -572,67 +961,126 @@ OUTPUT
 """
 
     response = client.chat.completions.create(
+
         model="openai/gpt-oss-120b",
+
         messages=[
+
             {
                 "role": "system",
                 "content": (
                     "You are a responsible news-content agent. "
                     "Never invent facts and never create unsupported "
-                    "claims."
+                    "claims. Adapt the writing style to the requested "
+                    "platform without changing the supplied facts "
+                    "or planner structure."
                 )
             },
+
             {
                 "role": "user",
                 "content": prompt
             }
+
         ],
+
         temperature=0.35
     )
 
     raw_content = response.choices[0].message.content
 
-    result = clean_json_response(raw_content)
-
-    hashtags = normalize_hashtags(
-        result.get("hashtags", [])
+    result = clean_json_response(
+        raw_content
     )
 
-    if len(hashtags) < 5:
-        generated = [
-            "#AI",
-            "#Technology",
-            "#TechNews",
-            "#Innovation",
-            "#News"
-        ]
+    # -----------------------------------------------------
+    # Platform-specific hashtag normalization
+    # -----------------------------------------------------
+
+    hashtags = normalize_hashtags(
+        result.get("hashtags", []),
+        platform=platform
+    )
+
+    hashtag_limit = {
+        "instagram": 5,
+        "linkedin": 3,
+        "facebook": 5,
+        "x": 2,
+        "general": 5,
+    }.get(
+        platform,
+        5
+    )
+
+    # -----------------------------------------------------
+    # Hashtag fallback
+    # -----------------------------------------------------
+
+    if len(hashtags) < hashtag_limit:
+
+        generated = get_hashtag_fallbacks(
+            topic=news_title,
+            platform=platform
+        )
 
         for tag in generated:
+
             if tag not in hashtags:
                 hashtags.append(tag)
 
-            if len(hashtags) == 5:
+            if len(hashtags) == hashtag_limit:
                 break
 
+    # -----------------------------------------------------
+    # FINAL NEWS CONTENT RESULT
+    # -----------------------------------------------------
+
     return {
+
         "caption": safe_text(
-            result.get("caption", "")
+            result.get(
+                "caption",
+                ""
+            )
         ),
-        "hashtags": hashtags[:5],
+
+        "hashtags": hashtags[:hashtag_limit],
+
         "post_idea": safe_text(
-            result.get("post_idea", "")
+            result.get(
+                "post_idea",
+                ""
+            )
         ),
+
         "news_summary": safe_text(
-            result.get("news_summary", "")
+            result.get(
+                "news_summary",
+                ""
+            )
         ),
+
         "style": style,
+
         "language": language,
+
         "tone": tone,
+
         "niche": niche,
+
         "topic": news_title,
+
+        # IMPORTANT:
+        # Always return the actual selected platform.
+        "platform": platform,
+
         "content_structure": {
+
             "post_type": post_type,
+
             "format": post_format,
+
             "section_count": len(sections)
         }
     }
