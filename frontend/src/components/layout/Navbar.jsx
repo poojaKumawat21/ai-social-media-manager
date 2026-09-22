@@ -18,6 +18,7 @@ function Navbar() {
   const navigate = useNavigate();
 
   const [profileName, setProfileName] = useState("User");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   useEffect(() => {
@@ -27,6 +28,9 @@ function Navbar() {
 
         if (result.profile?.name) {
           setProfileName(result.profile.name);
+        }
+        if (result.profile?.avatar_url) {
+          setAvatarUrl(result.profile.avatar_url);
         }
       } catch (error) {
         console.error("Profile load error:", error);
@@ -53,17 +57,13 @@ function Navbar() {
       <div className="search-box">
         <Search size={18} />
 
-        <input
-          type="text"
-          placeholder="Search anything..."
-        />
+        <input type="text" placeholder="Search anything..." />
 
         <span className="search-shortcut">⌘ K</span>
       </div>
 
       {/* Right Side */}
       <div className="navbar-right">
-
         {/* Login */}
         <button
           className="navbar-login-button"
@@ -95,7 +95,11 @@ function Navbar() {
             onClick={() => setIsProfileOpen((prev) => !prev)}
           >
             <div className="profile-avatar">
-              {firstLetter}
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={profileName} />
+              ) : (
+                firstLetter
+              )}
             </div>
 
             <span>{profileName}</span>
@@ -106,7 +110,6 @@ function Navbar() {
           {/* Profile Dropdown */}
           {isProfileOpen && (
             <div className="profile-dropdown">
-
               <button
                 onClick={() => {
                   setIsProfileOpen(false);
@@ -129,18 +132,13 @@ function Navbar() {
 
               <div className="profile-dropdown-divider"></div>
 
-              <button
-                className="logout-button"
-                onClick={handleLogout}
-              >
+              <button className="logout-button" onClick={handleLogout}>
                 <LogOut size={16} />
                 <span>Logout</span>
               </button>
-
             </div>
           )}
         </div>
-
       </div>
     </header>
   );

@@ -6,6 +6,8 @@ class ProfileCreate(BaseModel):
 
     name: str
 
+    email: str | None = None
+
     dob: date
 
     niche: str
@@ -19,6 +21,8 @@ class ProfileUpdate(BaseModel):
 
     name: str | None = None
 
+    email: str | None = None
+
     dob: date | None = None
 
     niche: str | None = None
@@ -26,3 +30,5 @@ class ProfileUpdate(BaseModel):
     language: str | None = None
 
     tone: str | None = None
+
+    avatar_url: str | None = None

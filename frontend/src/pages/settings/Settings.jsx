@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { User, Bell, Bot, Palette, Shield, Save } from "lucide-react";
+import api from "../../services/api";
 import "./Settings.css";
 
 function Settings() {
   const [activeSection, setActiveSection] = useState("profile");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [settings, setSettings] = useState({
     name: "Pooja Sharma",
@@ -23,12 +26,49 @@ function Settings() {
     );
   }, [settings.darkMode]);
 
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const result = await api.get("/profile");
+
+        if (result.profile?.avatar_url) {
+          setAvatarUrl(result.profile.avatar_url);
+        }
+      } catch (error) {
+        console.error("Failed to load profile:", error);
+      }
+    };
+
+    loadProfile();
+  }, []);
+
   /* HANDLE SETTINGS CHANGE */
   const handleChange = (key, value) => {
     setSettings((prev) => ({
       ...prev,
       [key]: value,
     }));
+  };
+
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setUploadingAvatar(true);
+
+      const result = await api.uploadAvatar(file);
+
+      setAvatarUrl(result.avatar_url);
+
+      alert("Avatar updated successfully.");
+    } catch (error) {
+      console.error(error);
+      alert("Avatar upload failed.");
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   /* SAVE SETTINGS */
@@ -97,9 +137,8 @@ function Settings() {
             return (
               <button
                 key={section.id}
-                className={`settings-nav-item ${
-                  activeSection === section.id ? "active" : ""
-                }`}
+                className={`settings-nav-item ${activeSection === section.id ? "active" : ""
+                  }`}
                 onClick={() => setActiveSection(section.id)}
               >
                 <Icon size={16} />
@@ -123,16 +162,34 @@ function Settings() {
               </div>
 
               <div className="settings-avatar-section">
-                <div className="settings-avatar">P</div>
-
+                <div className="settings-avatar">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={settings.name} />
+                  ) : (
+                    settings.name?.charAt(0).toUpperCase()
+                  )}
+                </div>
                 <div>
                   <strong>Profile Picture</strong>
 
                   <p>Update your profile picture later.</p>
 
-                  <button className="settings-secondary-button">
-                    Change Avatar
-                  </button>
+                  <>
+                    <input
+                      type="file"
+                      id="avatar-upload"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      style={{ display: "none" }}
+                    />
+
+                    <label
+                      htmlFor="avatar-upload"
+                      className="settings-secondary-button"
+                    >
+                      {uploadingAvatar ? "Uploading..." : "Change Avatar"}
+                    </label>
+                  </>
                 </div>
               </div>
 

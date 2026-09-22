@@ -96,6 +96,31 @@ const api = {
 
     return response.json();
   },
+    uploadAvatar: async (file) => {
+    const token = getAccessToken();
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch(`${API_BASE_URL}/profile/avatar`, {
+      method: "POST",
+      headers: token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : {},
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = new Error(`Avatar upload failed: ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    return response.json();
+  },
 };
+
 
 export default api;
