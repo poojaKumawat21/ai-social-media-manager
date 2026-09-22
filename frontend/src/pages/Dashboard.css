@@ -2381,3 +2381,13 @@ margin-right: 0;
   }
 
 }
+.dashboard-page .page-header h1 {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -1.2px;
+  font-family: "Inter", "Poppins", sans-serif;
+  background: linear-gradient(90deg, #a78bfa 0%, #60a5fa 45%, #f472b6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

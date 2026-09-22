@@ -14,6 +14,7 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import ScheduledPosts from "./pages/ScheduledPosts";
 import PublishedPosts from "./pages/PublishedPosts";
 import ConnectedAccounts from "./pages/ConnectedAccounts";
+import ProfileSetup from "./pages/ProfileSetup";
 
 
 import "./App.css";

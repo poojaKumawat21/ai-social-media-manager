@@ -4,6 +4,7 @@ import EngagementChart from "../components/analytics/EngagementChart";
 import AIInsightCard from "../components/dashboard/AIInsightCard";
 import AIAssistant from "../components/dashboard/AIAssistant";
 import { useNavigate } from "react-router-dom";
+import api from "../services/api";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -13,6 +14,23 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   const API_BASE = "http://127.0.0.1:8000";
+  const [profileName, setProfileName] = useState("User");
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const result = await api.get("/profile");
+
+        if (result.profile?.name) {
+          setProfileName(result.profile.name);
+        }
+      } catch (error) {
+        console.error("Profile load error:", error);
+      }
+    };
+
+    loadProfile();
+  }, []);
 
   useEffect(() => {
     fetchDashboardData();
@@ -42,9 +60,7 @@ function Dashboard() {
 
       if (scheduledResponse.ok) {
         const scheduledData = await scheduledResponse.json();
-        setScheduledPosts(
-          scheduledData.scheduled_posts || []
-        );
+        setScheduledPosts(scheduledData.scheduled_posts || []);
       }
     } catch (error) {
       console.error("Dashboard data fetch failed:", error);
@@ -53,16 +69,12 @@ function Dashboard() {
     }
   };
 
-  const publishedPosts = posts.filter(
-    (post) => post.status === "published"
-  );
+  const publishedPosts = posts.filter((post) => post.status === "published");
 
-  const draftPosts = posts.filter(
-    (post) => post.status === "draft"
-  );
+  const draftPosts = posts.filter((post) => post.status === "draft");
 
   const activeScheduledPosts = scheduledPosts.filter(
-    (post) => post.status === "scheduled"
+    (post) => post.status === "scheduled",
   );
 
   const recentPosts = posts.slice(0, 3);
@@ -81,7 +93,7 @@ function Dashboard() {
     <div className="dashboard-page">
       <div className="page-header">
         <div>
-          <h1>Dashboard</h1>
+          <h1>Hey, Social Star {profileName}!</h1>
           <p>Manage and monitor your social media content</p>
         </div>
 
@@ -107,9 +119,7 @@ function Dashboard() {
 
         <div className="stat-card">
           <span>Scheduled</span>
-          <h2>
-            {loading ? "..." : activeScheduledPosts.length}
-          </h2>
+          <h2>{loading ? "..." : activeScheduledPosts.length}</h2>
           <p>
             {activeScheduledPosts.length === 1
               ? "1 upcoming post"
@@ -162,23 +172,20 @@ function Dashboard() {
               const scheduledPost = scheduledPosts.find(
                 (scheduled) =>
                   scheduled.post_id === post.id &&
-                  scheduled.status === "scheduled"
+                  scheduled.status === "scheduled",
               );
 
               const status = scheduledPost
                 ? "Scheduled"
                 : post.status
-                ? post.status.charAt(0).toUpperCase() +
-                  post.status.slice(1)
-                : "Generated";
+                  ? post.status.charAt(0).toUpperCase() + post.status.slice(1)
+                  : "Generated";
 
               return (
                 <div className="post-item" key={post.id}>
                   <div>
                     <strong>
-                      {post.post_idea ||
-                        post.topic ||
-                        "Untitled Post"}
+                      {post.post_idea || post.topic || "Untitled Post"}
                     </strong>
 
                     <p>
@@ -213,10 +220,7 @@ function Dashboard() {
             ✦ Generate AI Post
           </button>
 
-          <button
-            className="action-btn"
-            onClick={() => navigate("/ai-ideas")}
-          >
+          <button className="action-btn" onClick={() => navigate("/ai-ideas")}>
             ◇ Generate Content Ideas
           </button>
 
@@ -227,10 +231,7 @@ function Dashboard() {
             ◷ Schedule a Post
           </button>
 
-          <button
-            className="action-btn"
-            onClick={() => navigate("/analytics")}
-          >
+          <button className="action-btn" onClick={() => navigate("/analytics")}>
             ▣ View Analytics
           </button>
         </div>
