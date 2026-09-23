@@ -225,3 +225,7 @@ __marimo__/
 # Node dependencies
 node_modules/
 frontend/node_modules/
+
+# Generated images/posts - keep local, don't commit to Git
+backend/generated_posts/
+backend/generated_images/
