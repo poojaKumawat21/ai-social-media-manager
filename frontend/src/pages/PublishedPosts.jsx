@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Search,
@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import "./PublishedPosts.css";
+import api from "../services/api";
 
 const initialPosts = [
   {
@@ -39,8 +40,7 @@ const initialPosts = [
   {
     id: 3,
     title: "Build Smarter With AI",
-    content:
-      "AI tools can help you save time and focus more on creative work.",
+    content: "AI tools can help you save time and focus more on creative work.",
     platform: "Facebook",
     date: "Sep 16, 2026",
     time: "06:30 PM",
@@ -63,20 +63,61 @@ const initialPosts = [
 ];
 
 function PublishedPosts() {
-  const [posts, setPosts] = useState(initialPosts);
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState("All");
   const [openMenu, setOpenMenu] = useState(null);
+  useEffect(() => {
+    const loadPublishedPosts = async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        const result = await api.get("/posts");
+
+        const allPosts = result.posts || [];
+        console.log("ALL POSTS FROM BACKEND:", allPosts);
+        console.log(
+          "POST PLATFORM DATA:",
+          allPosts.map((post) => ({
+            id: post.id,
+            topic: post.topic,
+            platforms: post.platforms,
+            platform_status: post.platform_status,
+            status: post.status,
+          })),
+        );
+
+        const publishedPosts = allPosts.filter((post) => {
+          const platformStatuses = post.platform_status || {};
+
+          return Object.values(platformStatuses).some(
+            (status) => status === "published",
+          );
+        });
+
+        setPosts(publishedPosts);
+      } catch (err) {
+        console.error("Published posts load error:", err);
+        setError("Failed to load published posts.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPublishedPosts();
+  }, []);
 
   const filteredPosts = useMemo(() => {
     return posts.filter((post) => {
       const matchesSearch =
-        post.title.toLowerCase().includes(search.toLowerCase()) ||
-        post.content.toLowerCase().includes(search.toLowerCase());
+        (post.title || "").toLowerCase().includes(search.toLowerCase()) ||
+        (post.content || "").toLowerCase().includes(search.toLowerCase());
 
       const matchesPlatform =
-        platformFilter === "All" ||
-        post.platform === platformFilter;
+        platformFilter === "All" || post.platform === platformFilter;
 
       return matchesSearch && matchesPlatform;
     });
@@ -89,14 +130,12 @@ function PublishedPosts() {
 
   const handleDelete = (id) => {
     const confirmed = window.confirm(
-      "Are you sure you want to delete this published post?"
+      "Are you sure you want to delete this published post?",
     );
 
     if (!confirmed) return;
 
-    setPosts((currentPosts) =>
-      currentPosts.filter((post) => post.id !== id)
-    );
+    setPosts((currentPosts) => currentPosts.filter((post) => post.id !== id));
 
     setOpenMenu(null);
   };
@@ -111,9 +150,7 @@ function PublishedPosts() {
 
           <div>
             <h1>Published Posts</h1>
-            <p>
-              View and manage your published social media content.
-            </p>
+            <p>View and manage your published social media content.</p>
           </div>
         </div>
       </div>
@@ -137,7 +174,7 @@ function PublishedPosts() {
 
           <div>
             <span>Total Reach</span>
-            <strong>33.6K</strong>
+            <strong>--</strong>
           </div>
         </div>
 
@@ -148,7 +185,7 @@ function PublishedPosts() {
 
           <div>
             <span>Avg. Engagement</span>
-            <strong>7.1%</strong>
+            <strong>--</strong>
           </div>
         </div>
       </div>
@@ -199,10 +236,7 @@ function PublishedPosts() {
         {filteredPosts.length > 0 ? (
           <div className="published-list">
             {filteredPosts.map((post) => (
-              <div
-                className="published-post-row"
-                key={post.id}
-              >
+              <div className="published-post-row" key={post.id}>
                 <div className="published-platform">
                   <div className="published-platform-icon">
                     <CheckCircle2 size={18} />
@@ -243,9 +277,7 @@ function PublishedPosts() {
                   <button
                     className="published-menu-btn"
                     onClick={() =>
-                      setOpenMenu(
-                        openMenu === post.id ? null : post.id
-                      )
+                      setOpenMenu(openMenu === post.id ? null : post.id)
                     }
                   >
                     <MoreHorizontal size={19} />
@@ -279,9 +311,7 @@ function PublishedPosts() {
 
             <h3>No published posts found</h3>
 
-            <p>
-              Try changing your search or platform filter.
-            </p>
+            <p>Try changing your search or platform filter.</p>
           </div>
         )}
       </div>

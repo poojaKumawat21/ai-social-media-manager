@@ -1,5 +1,4 @@
 import {
-  Search,
   Bell,
   ChevronDown,
   Sparkles,
@@ -29,6 +28,7 @@ function Navbar() {
         if (result.profile?.name) {
           setProfileName(result.profile.name);
         }
+
         if (result.profile?.avatar_url) {
           setAvatarUrl(result.profile.avatar_url);
         }
@@ -53,15 +53,6 @@ function Navbar() {
 
   return (
     <header className="top-navbar">
-      {/* Search */}
-      <div className="search-box">
-        <Search size={18} />
-
-        <input type="text" placeholder="Search anything..." />
-
-        <span className="search-shortcut">⌘ K</span>
-      </div>
-
       {/* Right Side */}
       <div className="navbar-right">
         {/* Login */}

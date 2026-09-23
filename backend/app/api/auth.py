@@ -82,6 +82,36 @@ def login(data: LoginRequest):
             detail="Invalid email or password",
         )
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/refresh")
+def refresh_token(data: RefreshTokenRequest):
+    try:
+        response = supabase_auth.auth.refresh_session(
+            data.refresh_token
+        )
+
+        if not response or not response.session:
+            raise HTTPException(
+                status_code=401,
+                detail="Unable to refresh session",
+            )
+
+        return {
+            "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=401,
+            detail="Unable to refresh session",
+        )    
+
 
 @router.post("/resend-confirmation")
 def resend_confirmation(data: RegisterRequest):

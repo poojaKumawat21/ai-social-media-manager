@@ -1,8 +1,40 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-import os
 from fastapi.middleware.cors import CORSMiddleware
+import os
+
 from app.api.social_accounts import router as social_accounts_router
+from app.api.ai import router as ai_router
+
+
+# =========================================================
+# FASTAPI APP
+# =========================================================
+
+app = FastAPI(
+    title="AI Social Media Manager API",
+    description="Backend API for AI-powered autonomous social media management.",
+    version="1.0.0",
+)
+
+
+# =========================================================
+# CORS
+# =========================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # =========================================================
 # AUTH / ROUTERS
@@ -155,6 +187,7 @@ app.include_router(profile_router)
 app.include_router(posts_router)
 app.include_router(social_accounts_router)
 app.include_router(scheduled_posts_router)
+app.include_router(ai_router)
 
 # =========================================================
 # STATIC FILES
@@ -351,16 +384,19 @@ def generate_content(
 @app.get("/research-news")
 def research_news(
     topic: str = "Artificial Intelligence",
+    category: str = "ai",
 ):
 
-    news = research_tech_news(topic)
+    news = research_tech_news(
+        topic=topic,
+        category=category,
+    )
 
     return {
         "status": "success",
         "count": len(news),
         "data": news,
     }
-
 
 # =========================================================
 # NEWS → POST

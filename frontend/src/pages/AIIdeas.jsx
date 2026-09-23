@@ -1,44 +1,38 @@
 import React, { useState } from "react";
 import "./AIIdeas.css";
+import api from "../services/api";
 
 function AIIdeas() {
   const [topic, setTopic] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [ideas, setIdeas] = useState([]);
 
-  const handleGenerateIdeas = () => {
+  const handleGenerateIdeas = async () => {
     if (!topic.trim()) {
       alert("Please enter a topic or niche.");
       return;
     }
 
     setIsGenerating(true);
+    setIdeas([]);
 
-    // Backend integration will be connected later.
-    setTimeout(() => {
-      setIdeas([
-        {
-          title: "AI-Powered Content Creation",
-          description:
-            "Explore how AI is changing the way creators plan, write and publish social media content.",
-          tags: ["Educational", "AI"],
-        },
-        {
-          title: "Future of Social Media",
-          description:
-            "Create a thought-provoking post about upcoming trends and the future of digital content.",
-          tags: ["Trending", "Engagement"],
-        },
-        {
-          title: "Common Creator Mistakes",
-          description:
-            "Share practical mistakes creators make and how they can improve their social media strategy.",
-          tags: ["Tips", "Practical"],
-        },
-      ]);
+    try {
+      const result = await api.post("/ai/ideas", {
+        topic: topic.trim(),
+      });
 
+      setIdeas(result.ideas || []);
+    } catch (error) {
+      console.error("AI ideas generation error:", error);
+
+      if (error.status === 401) {
+        alert("Your session has expired. Please login again.");
+      } else {
+        alert("Failed to generate AI ideas. Please try again.");
+      }
+    } finally {
       setIsGenerating(false);
-    }, 800);
+    }
   };
 
   return (
@@ -71,6 +65,11 @@ function AIIdeas() {
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             placeholder="e.g. AI, technology, fitness, business..."
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                handleGenerateIdeas();
+              }
+            }}
           />
 
           <small>
@@ -85,7 +84,11 @@ function AIIdeas() {
               <h3>Content Ideas</h3>
             </div>
 
-            <small>AI recommendations</small>
+            <small>
+              {ideas.length > 0
+                ? `${ideas.length} AI recommendations`
+                : "AI recommendations"}
+            </small>
           </div>
 
           {ideas.length > 0 && (
@@ -101,12 +104,18 @@ function AIIdeas() {
                   <p>{idea.description}</p>
 
                   <div className="idea-tags">
-                    {idea.tags.map((tag, tagIndex) => (
+                    {(idea.tags || []).map((tag, tagIndex) => (
                       <span key={tagIndex}>{tag}</span>
                     ))}
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {!isGenerating && ideas.length === 0 && (
+            <div className="empty-ideas-state">
+              <p>Enter a topic and let AI generate fresh content ideas.</p>
             </div>
           )}
         </div>

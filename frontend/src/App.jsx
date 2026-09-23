@@ -14,7 +14,12 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import ScheduledPosts from "./pages/ScheduledPosts";
 import PublishedPosts from "./pages/PublishedPosts";
 import ConnectedAccounts from "./pages/ConnectedAccounts";
-
+import SavedDrafts from "./pages/SavedDrafts";
+import ProfileSetup from "./pages/ProfileSetup";
+import SearchPage from "./pages/SearchPage";
+import AISettings from "./pages/settings/AISettings";
+import BrandSettings from "./pages/settings/BrandSettings";
+import SecuritySettings from "./pages/settings/SecuritySettings";
 
 import "./App.css";
 
@@ -52,6 +57,10 @@ function App() {
           <Route path="published-posts" element={<PublishedPosts />} />
           <Route path="connected-accounts" element={<ConnectedAccounts />} />
           <Route path="saved-drafts" element={<SavedDrafts />} />
+          <Route path="search" element={<SearchPage />} />
+          <Route path="ai-settings" element={<AISettings />} />
+          <Route path="brand-settings" element={<BrandSettings />} />
+          <Route path="security" element={<SecuritySettings />} />
         </Route>
 
         {/* Public Auth / Onboarding Pages */}

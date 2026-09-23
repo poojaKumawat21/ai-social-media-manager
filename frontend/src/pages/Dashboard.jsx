@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import "./Dashboard.css";
 import EngagementChart from "../components/analytics/EngagementChart";
 import AIInsightCard from "../components/dashboard/AIInsightCard";
-import AIAssistant from "../components/dashboard/AIAssistant";
+//import AIAssistant from "../components/dashboard/AIAssistant";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 
@@ -239,7 +239,7 @@ function Dashboard() {
 
       <EngagementChart />
       <AIInsightCard />
-      <AIAssistant />
+      {/*<AIAssistant />*/}
 
       {/* AI Section */}
       <div className="ai-banner">
