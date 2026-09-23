@@ -1976,3 +1976,226 @@ button:focus-visible {
     gap: 4px;
   }
 }
+.x-publish-options {
+  padding: 16px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.x-publish-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.x-publish-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  cursor: pointer;
+}
+
+.x-publish-option input {
+  cursor: pointer;
+}
+
+.x-character-count {
+  margin-top: 12px;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.x-character-error {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #ff6b6b;
+}
+
+/* ============================================================
+   X PUBLISHING OPTIONS
+   ============================================================ */
+
+.x-publish-options {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 18px 0 16px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.x-publish-title {
+  margin-bottom: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.x-publish-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.x-publish-option:hover {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.x-publish-option input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: #7c5cff;
+}
+
+.x-publish-option span {
+  line-height: 1.4;
+}
+
+.x-character-count {
+  margin-top: 13px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.x-character-error {
+  margin-top: 9px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: rgba(255, 80, 80, 0.08);
+  border: 1px solid rgba(255, 80, 80, 0.18);
+  color: #ff8585;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+
+/* ============================================================
+   PUBLISH ACTIONS
+   ============================================================ */
+
+.publish-actions {
+  width: 100%;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+
+/* ============================================================
+   PLATFORM PUBLISH BUTTONS
+   ============================================================ */
+
+.publish-platform-button,
+.publish-all-button {
+  min-height: 44px;
+  padding: 11px 16px;
+  margin: 5px 6px 5px 0;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+
+/* Individual platform buttons */
+
+.publish-platform-button {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.055);
+  color: #ffffff;
+}
+
+.publish-platform-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.20);
+  transform: translateY(-1px);
+}
+
+
+/* Publish all */
+
+.publish-all-button {
+  border: 1px solid rgba(124, 92, 255, 0.35);
+  background: rgba(124, 92, 255, 0.13);
+  color: #c7bcff;
+}
+
+.publish-all-button:hover:not(:disabled) {
+  background: rgba(124, 92, 255, 0.21);
+  border-color: rgba(124, 92, 255, 0.48);
+  transform: translateY(-1px);
+}
+
+
+/* Disabled state */
+
+.publish-platform-button:disabled,
+.publish-all-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+
+/* ============================================================
+   PUBLISH BUTTON PLATFORM DIFFERENTIATION
+   Uses button order-independent selectors based on text/card
+   structure, without changing JSX.
+   ============================================================ */
+
+.publish-actions .publish-platform-button {
+  position: relative;
+}
+
+
+/* ============================================================
+   MOBILE
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .x-publish-options {
+    padding: 14px;
+    margin-top: 14px;
+  }
+
+  .x-publish-option {
+    padding: 10px;
+  }
+
+  .publish-platform-button,
+  .publish-all-button {
+    width: 100%;
+    margin: 5px 0;
+  }
+
+  .publish-actions {
+    margin-top: 16px;
+    padding-top: 14px;
+  }
+}

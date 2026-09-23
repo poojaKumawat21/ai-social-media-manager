@@ -14,6 +14,10 @@ from app.services.linkedin_publish_service import (
 from app.services.instagram_publish_service import (
     publish_instagram_image_post,
 )
+from app.services.x_publish_service import (
+    publish_x_text_post,
+    publish_x_image_post,
+)
 
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
@@ -32,6 +36,8 @@ class GeneratePostRequest(BaseModel):
 class SaveDraftRequest(BaseModel):
     topic: str = ""
     description: str = ""
+class XPublishRequest(BaseModel):
+    include_image: bool = False
 
 
 # =========================================================
@@ -1208,6 +1214,224 @@ def publish_post_to_instagram(
             "instagram_media_id": result.get(
                 "media_id"
             ),
+            "status": "published",
+            "platform_status": platform_status,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+# =========================================================
+# PUBLISH ONE POST TO X
+# =========================================================
+
+@router.post("/{post_id}/publish/x")
+def publish_post_to_x(
+    post_id: str,
+    data: XPublishRequest,
+    user_id: str = Depends(get_current_user),
+):
+    try:
+        db = get_database_client()
+
+        # -------------------------------------------------
+        # GET POST
+        # -------------------------------------------------
+
+        post_response = (
+            db
+            .table("posts")
+            .select("*")
+            .eq("id", post_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+
+        if not post_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Post not found.",
+            )
+
+        post = post_response.data[0]
+
+        # -------------------------------------------------
+        # CHECK X WAS SELECTED
+        # -------------------------------------------------
+
+        platforms = post.get("platforms") or []
+
+        if "x" not in platforms:
+            raise HTTPException(
+                status_code=400,
+                detail="X was not selected for this post.",
+            )
+
+        # -------------------------------------------------
+        # GET X VARIANT
+        # -------------------------------------------------
+
+        platform_variants = (
+            post.get("platform_variants")
+            or {}
+        )
+
+        x_variant = platform_variants.get("x")
+
+        if not x_variant:
+            raise HTTPException(
+                status_code=400,
+                detail="X content is not available for this post.",
+            )
+
+        # -------------------------------------------------
+        # GET X ACCOUNT
+        # -------------------------------------------------
+
+        account_response = (
+            db
+            .table("social_accounts")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("platform", "x")
+            .eq("status", "connected")
+            .limit(1)
+            .execute()
+        )
+
+        if not account_response.data:
+            raise HTTPException(
+                status_code=404,
+                detail="X account is not connected.",
+            )
+
+        x_account = account_response.data[0]
+
+        access_token = x_account.get(
+            "access_token"
+        )
+
+        if not access_token:
+            raise HTTPException(
+                status_code=400,
+                detail="X access token is missing.",
+            )
+
+        # -------------------------------------------------
+        # BUILD X TEXT
+        # -------------------------------------------------
+
+        text = x_variant.get("caption") or ""
+
+        if not text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="X post text is empty.",
+            )
+
+        hashtags = x_variant.get(
+            "hashtags"
+        ) or []
+
+        if hashtags:
+            hashtag_text = " ".join(
+                hashtag
+                if str(hashtag).startswith("#")
+                else f"#{hashtag}"
+                for hashtag in hashtags
+            )
+
+            text = (
+                f"{text.strip()}\n\n"
+                f"{hashtag_text}"
+            )
+
+        # -------------------------------------------------
+        # X CHARACTER LIMIT
+        # -------------------------------------------------
+
+        if len(text) > 280:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "X post exceeds the 280 character limit.",
+                    "character_count": len(text),
+                    "character_limit": 280,
+                },
+            )
+
+        # -------------------------------------------------
+        # GET IMAGE
+        # -------------------------------------------------
+
+        media_urls = x_variant.get(
+            "media_urls"
+        ) or []
+
+        # -------------------------------------------------
+        # PUBLISH
+        # -------------------------------------------------
+
+        if data.include_image:
+
+            if not media_urls:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Image publishing was selected, "
+                        "but this X post does not contain an image."
+                    ),
+                )
+
+            result = publish_x_image_post(
+                access_token=access_token,
+                text=text,
+                image_url=media_urls[0],
+            )
+
+        else:
+
+            result = publish_x_text_post(
+                access_token=access_token,
+                text=text,
+            )
+
+        # -------------------------------------------------
+        # UPDATE ONLY X STATUS
+        # -------------------------------------------------
+
+        platform_status = (
+            post.get("platform_status")
+            or {}
+        )
+
+        platform_status["x"] = "published"
+
+        db.table("posts").update({
+            "platform_status": platform_status,
+        }).eq(
+            "id",
+            post_id,
+        ).eq(
+            "user_id",
+            user_id,
+        ).execute()
+
+        return {
+            "message": "Post published to X successfully.",
+            "platform": "x",
+            "post_id": post_id,
+            "x_post_id": result.get("post_id"),
+            "media_id": result.get("media_id"),
+            "include_image": data.include_image,
+            "character_count": len(text),
             "status": "published",
             "platform_status": platform_status,
         }

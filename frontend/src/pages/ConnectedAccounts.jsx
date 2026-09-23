@@ -58,48 +58,75 @@ function ConnectedAccounts() {
     try {
       const platform = account.name.toLowerCase();
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
       // INSTAGRAM
-      // --------------------------------------------------------
-
+      // ----------------------------------------------------------
       if (platform === "instagram") {
         const result = await api.get(
           "/social-accounts/oauth/instagram/start"
         );
 
-        if (!result?.authorization_url) {
+        const authorizationUrl =
+          result?.authorization_url ||
+          result?.data?.authorization_url;
+
+        if (!authorizationUrl) {
           throw new Error(
             "Instagram authorization URL was not returned."
           );
         }
 
-        window.location.href = result.authorization_url;
+        window.location.href = authorizationUrl;
         return;
       }
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
       // LINKEDIN
-      // --------------------------------------------------------
-
+      // ----------------------------------------------------------
       if (platform === "linkedin") {
         const result = await api.get(
           "/social-accounts/oauth/linkedin/start"
         );
 
-        if (!result?.authorization_url) {
+        const authorizationUrl =
+          result?.authorization_url ||
+          result?.data?.authorization_url;
+
+        if (!authorizationUrl) {
           throw new Error(
             "LinkedIn authorization URL was not returned."
           );
         }
 
-        window.location.href = result.authorization_url;
+        window.location.href = authorizationUrl;
         return;
       }
 
-      // --------------------------------------------------------
-      // OTHER PLATFORMS
-      // --------------------------------------------------------
+      // ----------------------------------------------------------
+      // X
+      // ----------------------------------------------------------
+      if (platform === "x") {
+        const result = await api.get(
+          "/social-accounts/oauth/x/start"
+        );
 
+        const authorizationUrl =
+          result?.authorization_url ||
+          result?.data?.authorization_url;
+
+        if (!authorizationUrl) {
+          throw new Error(
+            "X authorization URL was not returned."
+          );
+        }
+
+        window.location.href = authorizationUrl;
+        return;
+      }
+
+      // ----------------------------------------------------------
+      // OTHER / NOT AVAILABLE
+      // ----------------------------------------------------------
       alert(
         `${account.name} connection is not available yet.`
       );
@@ -109,9 +136,12 @@ function ConnectedAccounts() {
         error
       );
 
-      alert(
-        `Could not connect ${account.name}. Please try again.`
-      );
+      const errorMessage =
+        error?.response?.data?.detail ||
+        error?.message ||
+        `Could not connect ${account.name}. Please try again.`;
+
+      alert(errorMessage);
     }
   };
 
@@ -125,18 +155,23 @@ function ConnectedAccounts() {
         const result = await api.get("/social-accounts");
 
         const connectedAccounts =
-          result.accounts || result || [];
+          result?.accounts ||
+          result?.data?.accounts ||
+          result?.data ||
+          result ||
+          [];
 
         setAccounts((currentAccounts) =>
           currentAccounts.map((account) => {
-            const connectedAccount =
-              Array.isArray(connectedAccounts)
-                ? connectedAccounts.find(
-                    (item) =>
-                      item.platform?.toLowerCase() ===
-                      account.name.toLowerCase()
-                  )
-                : null;
+            const connectedAccount = Array.isArray(
+              connectedAccounts
+            )
+              ? connectedAccounts.find(
+                  (item) =>
+                    item?.platform?.toLowerCase() ===
+                    account.name.toLowerCase()
+                )
+              : null;
 
             return {
               ...account,
@@ -164,7 +199,6 @@ function ConnectedAccounts() {
 
   return (
     <div className="connected-accounts-page">
-
       <div className="connected-header">
         <div>
           <h1>Connected Accounts</h1>
@@ -177,7 +211,6 @@ function ConnectedAccounts() {
       </div>
 
       <div className="connected-summary">
-
         <div className="connected-summary-icon">
           <Link2 size={20} />
         </div>
@@ -194,20 +227,15 @@ function ConnectedAccounts() {
             / {accounts.length}
           </strong>
         </div>
-
       </div>
 
       <div className="connected-accounts-grid">
-
         {accounts.map((account) => (
-
           <div
             className="connected-account-card"
             key={account.id}
           >
-
             <div className="account-card-top">
-
               <div
                 className={`account-platform-icon ${account.name.toLowerCase()}`}
               >
@@ -220,11 +248,9 @@ function ConnectedAccounts() {
                   Connected
                 </div>
               )}
-
             </div>
 
             <div className="account-card-content">
-
               <h2>{account.name}</h2>
 
               <span className="account-username">
@@ -232,7 +258,6 @@ function ConnectedAccounts() {
               </span>
 
               <p>{account.description}</p>
-
             </div>
 
             <button
@@ -250,13 +275,9 @@ function ConnectedAccounts() {
                 ? "Connected"
                 : "Connect"}
             </button>
-
           </div>
-
         ))}
-
       </div>
-
     </div>
   );
 }

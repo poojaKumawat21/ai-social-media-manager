@@ -44,6 +44,7 @@ from app.api.auth import router as auth_router
 from app.api.profile import router as profile_router
 from app.api.posts import router as posts_router
 from app.api.scheduled_posts import router as scheduled_posts_router
+from app.api.analytics import router as analytics_router
 
 
 # =========================================================
@@ -187,7 +188,11 @@ app.include_router(profile_router)
 app.include_router(posts_router)
 app.include_router(social_accounts_router)
 app.include_router(scheduled_posts_router)
+<<<<<<< Updated upstream
 app.include_router(ai_router)
+=======
+app.include_router(analytics_router)
+>>>>>>> Stashed changes
 
 # =========================================================
 # STATIC FILES

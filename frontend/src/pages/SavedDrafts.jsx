@@ -4,13 +4,56 @@ import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import "./SavedDrafts.css";
 
+const USER_ID_KEY = "user_id";
+
+const getUserScopedKey = (baseKey, userId) => {
+  if (!userId) {
+    return null;
+  }
+
+  return `${baseKey}_${userId}`;
+};
+
 function SavedDrafts() {
   const navigate = useNavigate();
+
+  const [currentUserId, setCurrentUserId] = useState(() =>
+    localStorage.getItem(USER_ID_KEY)
+  );
 
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
   const [publishingId, setPublishingId] = useState(null);
+
+  // =========================================================
+  // USER-SCOPED STORAGE
+  // =========================================================
+
+  const EDIT_DRAFT_KEY = getUserScopedKey(
+    "postpilot_edit_draft",
+    currentUserId
+  );
+
+  // =========================================================
+  // AUTH / USER SYNC
+  // =========================================================
+
+  useEffect(() => {
+    const syncCurrentUser = () => {
+      setCurrentUserId(localStorage.getItem(USER_ID_KEY));
+    };
+
+    window.addEventListener("storage", syncCurrentUser);
+
+    return () => {
+      window.removeEventListener("storage", syncCurrentUser);
+    };
+  }, []);
+
+  // =========================================================
+  // LOAD DRAFTS
+  // =========================================================
 
   const loadDrafts = async () => {
     try {
@@ -18,10 +61,17 @@ function SavedDrafts() {
 
       const response = await api.get("/posts");
 
-      const allPosts = response.posts || [];
+      // Support both:
+      // { posts: [...] }
+      // and direct [...]
+      const allPosts = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.posts)
+        ? response.posts
+        : [];
 
       const savedDrafts = allPosts.filter(
-        (post) => post.status === "draft"
+        (post) => post?.status === "draft"
       );
 
       setDrafts(savedDrafts);
@@ -29,31 +79,136 @@ function SavedDrafts() {
       console.error("Failed to load drafts:", error);
 
       alert(
-        error.message || "Unable to load saved drafts."
+        error?.message ||
+          "Unable to load saved drafts."
       );
+
+      setDrafts([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    if (!currentUserId) {
+      setDrafts([]);
+      setLoading(false);
+      return;
+    }
+
     loadDrafts();
-  }, []);
+  }, [currentUserId]);
 
-  // ================= EDIT =================
+  // =========================================================
+  // PLATFORM HELPERS
+  // =========================================================
 
-  const handleEdit = (draft) => {
-    localStorage.setItem(
-      "postpilot_edit_draft",
-      JSON.stringify(draft)
-    );
+  const getPlatforms = (draft) => {
+    if (!draft) {
+      return [];
+    }
 
-    navigate("/create-post");
+    if (Array.isArray(draft.platforms)) {
+      return draft.platforms
+        .map((platform) =>
+          String(platform).toLowerCase().trim()
+        )
+        .filter(Boolean);
+    }
+
+    if (draft.platform) {
+      return [
+        String(draft.platform)
+          .toLowerCase()
+          .trim(),
+      ];
+    }
+
+    return [];
   };
 
-  // ================= DELETE =================
+  const getPlatformLabel = (platform) => {
+    switch (String(platform).toLowerCase()) {
+      case "instagram":
+        return "Instagram";
+
+      case "linkedin":
+        return "LinkedIn";
+
+      case "facebook":
+        return "Facebook";
+
+      case "x":
+        return "X";
+
+      default:
+        return "Social Media";
+    }
+  };
+
+  const getDraftPlatformLabel = (draft) => {
+    const platforms = getPlatforms(draft);
+
+    if (platforms.length === 0) {
+      return "No platform";
+    }
+
+    if (platforms.length === 1) {
+      return getPlatformLabel(platforms[0]);
+    }
+
+    return platforms
+      .map((platform) =>
+        getPlatformLabel(platform)
+      )
+      .join(" • ");
+  };
+
+  // =========================================================
+  // EDIT
+  // =========================================================
+
+  const handleEdit = (draft) => {
+    if (!draft?.id) {
+      alert("Unable to edit this draft.");
+      return;
+    }
+
+    if (!currentUserId || !EDIT_DRAFT_KEY) {
+      alert(
+        "Your session could not be identified. Please log in again."
+      );
+      return;
+    }
+
+    try {
+      localStorage.setItem(
+        EDIT_DRAFT_KEY,
+        JSON.stringify(draft)
+      );
+
+      navigate("/create-post");
+    } catch (error) {
+      console.error(
+        "Save edit draft error:",
+        error
+      );
+
+      alert(
+        "Unable to open this draft for editing."
+      );
+    }
+  };
+
+  // =========================================================
+  // DELETE
+  // =========================================================
 
   const handleDelete = async (draftId) => {
+    if (!draftId) {
+      return;
+    }
+
     const confirmed = window.confirm(
       "Are you sure you want to delete this draft?"
     );
@@ -81,7 +236,7 @@ function SavedDrafts() {
       );
 
       alert(
-        error.message ||
+        error?.message ||
           "Unable to delete draft."
       );
     } finally {
@@ -89,15 +244,200 @@ function SavedDrafts() {
     }
   };
 
-  // ================= PUBLISH =================
+  // =========================================================
+  // PUBLISH ONE PLATFORM
+  // =========================================================
+
+  const publishToPlatform = async (
+    draft,
+    platform
+  ) => {
+    if (!draft?.id) {
+      throw new Error(
+        "Draft ID is missing."
+      );
+    }
+
+    const normalizedPlatform = String(
+      platform
+    )
+      .toLowerCase()
+      .trim();
+
+    // -------------------------
+    // LINKEDIN
+    // -------------------------
+
+    if (
+      normalizedPlatform === "linkedin"
+    ) {
+      return api.post(
+        `/posts/${draft.id}/publish/linkedin`
+      );
+    }
+
+    // -------------------------
+    // INSTAGRAM
+    // -------------------------
+
+    if (
+      normalizedPlatform === "instagram"
+    ) {
+      return api.post(
+        `/posts/${draft.id}/publish/instagram`
+      );
+    }
+
+    // -------------------------
+    // X
+    // -------------------------
+
+    if (normalizedPlatform === "x") {
+      const includeImage =
+        Array.isArray(draft.media_urls) &&
+        draft.media_urls.length > 0;
+
+      return api.post(
+        `/posts/${draft.id}/publish/x`,
+        {
+          include_image: includeImage,
+        }
+      );
+    }
+
+    throw new Error(
+      `${getPlatformLabel(
+        normalizedPlatform
+      )} publishing is not available yet.`
+    );
+  };
+
+  // =========================================================
+  // PUBLISH
+  // =========================================================
 
   const handlePublish = async (draft) => {
     if (!draft?.id) {
       return;
     }
 
+    const platforms = getPlatforms(draft);
+
+    if (platforms.length === 0) {
+      alert(
+        "No platform is selected for this draft."
+      );
+      return;
+    }
+
+    // Only platforms that currently have
+    // backend publish endpoints.
+    const publishablePlatforms =
+      platforms.filter((platform) =>
+        [
+          "linkedin",
+          "instagram",
+          "x",
+        ].includes(platform)
+      );
+
+    if (
+      publishablePlatforms.length === 0
+    ) {
+      alert(
+        "This draft does not have a supported publishing platform."
+      );
+      return;
+    }
+
+    let selectedPlatform =
+      publishablePlatforms[0];
+
+    // If the draft has multiple platforms,
+    // let the user choose where to publish.
+    if (publishablePlatforms.length > 1) {
+      const platformText =
+        publishablePlatforms
+          .map(
+            (platform, index) =>
+              `${index + 1}. ${getPlatformLabel(
+                platform
+              )}`
+          )
+          .join("\n");
+
+      const selection = window.prompt(
+        `Which platform do you want to publish this draft to?\n\n${platformText}\n\nEnter the number:`,
+        "1"
+      );
+
+      if (selection === null) {
+        return;
+      }
+
+      const selectedIndex =
+        Number(selection) - 1;
+
+      if (
+        !Number.isInteger(
+          selectedIndex
+        ) ||
+        !publishablePlatforms[
+          selectedIndex
+        ]
+      ) {
+        alert(
+          "Invalid platform selection."
+        );
+        return;
+      }
+
+      selectedPlatform =
+        publishablePlatforms[
+          selectedIndex
+        ];
+    }
+
+    const platformLabel =
+      getPlatformLabel(selectedPlatform);
+
+    // X has a 280-character limit.
+    if (selectedPlatform === "x") {
+      const xVariant =
+        draft?.platform_variants?.x ||
+        {};
+
+      const xText =
+        xVariant.text ||
+        draft.caption ||
+        draft.content ||
+        draft.text ||
+        "";
+
+      const hashtags = Array.isArray(
+        xVariant.hashtags
+      )
+        ? xVariant.hashtags
+        : [];
+
+      const hashtagText =
+        hashtags.length > 0
+          ? ` ${hashtags.join(" ")}`
+          : "";
+
+      const finalXText =
+        `${xText}${hashtagText}`.trim();
+
+      if (finalXText.length > 280) {
+        alert(
+          `This X post is ${finalXText.length}/280 characters. Please edit the draft before publishing.`
+        );
+        return;
+      }
+    }
+
     const confirmed = window.confirm(
-      "Publish this draft to LinkedIn?"
+      `Publish this draft to ${platformLabel}?`
     );
 
     if (!confirmed) {
@@ -107,23 +447,27 @@ function SavedDrafts() {
     try {
       setPublishingId(draft.id);
 
-      const result = await api.post(
-        `/posts/${draft.id}/publish/linkedin`
-      );
+      const result =
+        await publishToPlatform(
+          draft,
+          selectedPlatform
+        );
 
       console.log(
         "Draft publish result:",
         result
       );
 
+      // Remove from saved drafts after successful publish.
       setDrafts((currentDrafts) =>
         currentDrafts.filter(
-          (item) => item.id !== draft.id
+          (item) =>
+            item.id !== draft.id
         )
       );
 
       alert(
-        "Draft published to LinkedIn successfully."
+        `Draft published to ${platformLabel} successfully.`
       );
     } catch (error) {
       console.error(
@@ -132,13 +476,31 @@ function SavedDrafts() {
       );
 
       alert(
-        error.message ||
-          "Unable to publish draft to LinkedIn."
+        error?.message ||
+          `Unable to publish draft to ${platformLabel}.`
       );
     } finally {
       setPublishingId(null);
     }
   };
+
+  // =========================================================
+  // CREATE NEW POST
+  // =========================================================
+
+  const handleCreateNewPost = () => {
+    if (EDIT_DRAFT_KEY) {
+      localStorage.removeItem(
+        EDIT_DRAFT_KEY
+      );
+    }
+
+    navigate("/create-post");
+  };
+
+  // =========================================================
+  // RENDER
+  // =========================================================
 
   return (
     <div className="saved-drafts-page">
@@ -153,18 +515,21 @@ function SavedDrafts() {
             CONTENT LIBRARY
           </span>
 
-          <h1>Saved Drafts</h1>
+          <h1>
+            Saved Drafts
+          </h1>
 
           <p>
-            Continue working on your saved posts.
+            Continue working on your saved
+            posts.
           </p>
 
         </div>
 
         <button
           className="create-new-draft-button"
-          onClick={() =>
-            navigate("/create-post")
+          onClick={
+            handleCreateNewPost
           }
         >
           + Create New Post
@@ -212,8 +577,8 @@ function SavedDrafts() {
             </p>
 
             <button
-              onClick={() =>
-                navigate("/create-post")
+              onClick={
+                handleCreateNewPost
               }
             >
               Create Your First Post
@@ -232,14 +597,17 @@ function SavedDrafts() {
                 key={draft.id}
               >
 
-                {/* IMAGE */}
+                {/* ================= IMAGE ================= */}
 
-                {draft.media_urls?.length > 0 ? (
+                {draft.media_urls?.length >
+                0 ? (
 
                   <div className="draft-image">
 
                     <img
-                      src={draft.media_urls[0]}
+                      src={
+                        draft.media_urls[0]
+                      }
                       alt={
                         draft.topic ||
                         "Draft"
@@ -260,7 +628,7 @@ function SavedDrafts() {
 
                 )}
 
-                {/* DETAILS */}
+                {/* ================= DETAILS ================= */}
 
                 <div className="draft-card-body">
 
@@ -271,7 +639,9 @@ function SavedDrafts() {
                     </span>
 
                     <span className="draft-platform">
-                      LinkedIn
+                      {getDraftPlatformLabel(
+                        draft
+                      )}
                     </span>
 
                   </div>
@@ -283,10 +653,12 @@ function SavedDrafts() {
 
                   <p>
                     {draft.caption ||
+                      draft.content ||
+                      draft.text ||
                       "No description added yet."}
                   </p>
 
-                  {/* FOOTER */}
+                  {/* ================= FOOTER ================= */}
 
                   <div className="draft-card-footer">
 
@@ -303,9 +675,18 @@ function SavedDrafts() {
                       {/* EDIT */}
 
                       <button
+                        type="button"
                         className="draft-edit-button"
                         onClick={() =>
-                          handleEdit(draft)
+                          handleEdit(
+                            draft
+                          )
+                        }
+                        disabled={
+                          deletingId ===
+                            draft.id ||
+                          publishingId ===
+                            draft.id
                         }
                       >
                         Edit
@@ -314,13 +695,18 @@ function SavedDrafts() {
                       {/* PUBLISH */}
 
                       <button
+                        type="button"
                         className="draft-publish-button"
                         onClick={() =>
-                          handlePublish(draft)
+                          handlePublish(
+                            draft
+                          )
                         }
                         disabled={
                           publishingId ===
-                          draft.id
+                            draft.id ||
+                          deletingId ===
+                            draft.id
                         }
                       >
                         {publishingId ===
@@ -332,6 +718,7 @@ function SavedDrafts() {
                       {/* DELETE */}
 
                       <button
+                        type="button"
                         className="draft-delete-button"
                         onClick={() =>
                           handleDelete(
@@ -340,7 +727,9 @@ function SavedDrafts() {
                         }
                         disabled={
                           deletingId ===
-                          draft.id
+                            draft.id ||
+                          publishingId ===
+                            draft.id
                         }
                       >
                         {deletingId ===

@@ -1,7 +1,7 @@
 import json
 import re
 
-from app.services.content_generator import client
+from app.services.content_generator import create_groq_completion
 
 
 # =========================================================
@@ -476,8 +476,18 @@ Return exactly:
 }}
 """
 
-    response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+    # =====================================================
+    # REPAIR AI REQUEST
+    # =====================================================
+    #
+    # IMPORTANT:
+    # Use the shared Groq -> retry -> Gemini fallback
+    # helper instead of calling Groq directly.
+    #
+    # This keeps the existing repair logic unchanged.
+    # =====================================================
+
+    response = create_groq_completion(
         messages=[
             {
                 "role": "system",
@@ -492,7 +502,7 @@ Return exactly:
             }
         ],
         temperature=0.35,
-        max_tokens=2500
+        max_retries=2
     )
 
     raw_content = (
@@ -607,6 +617,7 @@ def create_design_plan(
         raise ValueError(
             "planner_data must be a dictionary"
         )
+
     platform = normalize_platform(
         platform or planner_data.get("platform")
     )
@@ -630,7 +641,7 @@ def create_design_plan(
         )
 
     platform = normalize_platform(
-    platform or planner_data.get("platform")
+        platform or planner_data.get("platform")
     )
 
     platform_rules = get_platform_design_rules(
@@ -1448,11 +1459,18 @@ FINAL REQUIREMENTS
 """
 
     # =====================================================
-    # GROQ REQUEST
+    # DESIGN AI REQUEST
+    # =====================================================
+    #
+    # IMPORTANT:
+    # Existing Design Agent prompt and processing remain
+    # unchanged.
+    #
+    # Only the model request now goes through the shared
+    # Groq -> retry -> Gemini fallback helper.
     # =====================================================
 
-    response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+    response = create_groq_completion(
         messages=[
             {
                 "role": "system",
@@ -1468,7 +1486,7 @@ FINAL REQUIREMENTS
             }
         ],
         temperature=0.65,
-        max_tokens=3500
+        max_retries=2
     )
 
     # =====================================================

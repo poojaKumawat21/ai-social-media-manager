@@ -4,7 +4,6 @@ from datetime import datetime
 
 from app.core.security import get_current_user
 from app.database.supabase import get_database_client
-# from app.services.scheduler_service import add_one_time_job
 from app.services.scheduler_service import (
     add_one_time_job,
     remove_one_time_job,
@@ -40,17 +39,29 @@ def create_scheduled_post(
         db = get_database_client()
 
         # -------------------------------------------------
-        # Only LinkedIn for now
+        # Supported platforms
         # -------------------------------------------------
 
-        if data.platform.lower() != "linkedin":
+        allowed_platforms = {
+            "linkedin",
+            "instagram",
+            "x",
+        }
+
+        platform = (
+            data.platform or ""
+        ).lower().strip()
+
+        if platform not in allowed_platforms:
             raise HTTPException(
                 status_code=400,
-                detail="Currently only LinkedIn scheduling is available.",
+                detail=(
+                    f"Scheduling is not supported for platform '{platform}'."
+                ),
             )
 
         # -------------------------------------------------
-        # Check that the post belongs to the current user
+        # Check that the post belongs to current user
         # -------------------------------------------------
 
         post_response = (
@@ -71,18 +82,22 @@ def create_scheduled_post(
 
         post = post_response.data[0]
 
+
+
         # -------------------------------------------------
-        # Post must have content before scheduling
+        # Post must have content
         # -------------------------------------------------
 
         if not post.get("caption"):
             raise HTTPException(
                 status_code=400,
-                detail="Post content is empty. Generate the post before scheduling.",
+                detail=(
+                    "Post content is empty. Generate the post before scheduling."
+                ),
             )
 
         # -------------------------------------------------
-        # Scheduled time must be in the future
+        # Scheduled time must be timezone-aware and future
         # -------------------------------------------------
 
         scheduled_at = data.scheduled_at
@@ -90,17 +105,25 @@ def create_scheduled_post(
         if scheduled_at.tzinfo is None:
             raise HTTPException(
                 status_code=400,
-                detail="scheduled_at must include timezone information.",
+                detail=(
+                    "scheduled_at must include timezone information."
+                ),
             )
 
-        if scheduled_at <= datetime.now(scheduled_at.tzinfo):
+        if scheduled_at <= datetime.now(
+            scheduled_at.tzinfo
+        ):
             raise HTTPException(
                 status_code=400,
                 detail="Scheduled time must be in the future.",
             )
 
         # -------------------------------------------------
-        # Prevent duplicate active schedules
+        # Prevent duplicate schedule for the SAME
+        # post + SAME platform.
+        #
+        # This intentionally does NOT block another
+        # platform from using the same post_id.
         # -------------------------------------------------
 
         existing_response = (
@@ -109,6 +132,7 @@ def create_scheduled_post(
             .select("id")
             .eq("user_id", user_id)
             .eq("post_id", data.post_id)
+            .eq("platform", platform)
             .eq("status", "scheduled")
             .limit(1)
             .execute()
@@ -117,7 +141,9 @@ def create_scheduled_post(
         if existing_response.data:
             raise HTTPException(
                 status_code=400,
-                detail="This post is already scheduled.",
+                detail=(
+                    f"This post is already scheduled for {platform}."
+                ),
             )
 
         # -------------------------------------------------
@@ -127,7 +153,7 @@ def create_scheduled_post(
         schedule_data = {
             "user_id": user_id,
             "post_id": data.post_id,
-            "platform": "linkedin",
+            "platform": platform,
             "scheduled_at": scheduled_at.isoformat(),
             "status": "scheduled",
         }
@@ -138,12 +164,6 @@ def create_scheduled_post(
             .insert(schedule_data)
             .execute()
         )
-        scheduled_post = response.data[0]
-
-        add_one_time_job(
-            scheduled_post_id=scheduled_post["id"],
-            scheduled_at=scheduled_at,
-        )
 
         if not response.data:
             raise HTTPException(
@@ -151,9 +171,20 @@ def create_scheduled_post(
                 detail="Scheduled post could not be created.",
             )
 
+        scheduled_post = response.data[0]
+
+        # -------------------------------------------------
+        # Add APScheduler one-time job
+        # -------------------------------------------------
+
+        add_one_time_job(
+            scheduled_post_id=scheduled_post["id"],
+            scheduled_at=scheduled_at,
+        )
+
         return {
             "message": "Post scheduled successfully.",
-            "scheduled_post": response.data[0],
+            "scheduled_post": scheduled_post,
         }
 
     except HTTPException:
@@ -225,11 +256,14 @@ def cancel_scheduled_post(
         if not response.data:
             raise HTTPException(
                 status_code=404,
-                detail="Scheduled post not found or already processed.",
+                detail=(
+                    "Scheduled post not found or already processed."
+                ),
             )
 
-        # Remove the actual APScheduler job
-        remove_one_time_job(scheduled_post_id)
+        remove_one_time_job(
+            scheduled_post_id
+        )
 
         return {
             "message": "Scheduled post cancelled successfully.",

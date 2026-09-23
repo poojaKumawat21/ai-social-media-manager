@@ -1,28 +1,358 @@
 import os
 import json
 import re
+import time
 
 from groq import Groq
+from google import genai
 from dotenv import load_dotenv
+
 
 load_dotenv(".env")
 
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY is missing from .env")
 
-client = Groq(api_key=GROQ_API_KEY)
+
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY is missing from .env")
 
 
+client = Groq(
+    api_key=GROQ_API_KEY
+)
+
+gemini_client = genai.Client(
+    api_key=GEMINI_API_KEY
+)
+
+
+# =========================================================
+# Helper: Groq Completion With Rate-Limit Handling
+# =========================================================
+
+# =========================================================
+# Helper: Groq Completion With Gemini Fallback
+# =========================================================
+
+# =========================================================
+# Helper: Groq Completion With Gemini Fallback
+# =========================================================
+
+def create_groq_completion(
+    messages,
+    temperature=0.65,
+    max_retries=2,
+):
+    """
+    Try Groq first.
+
+    If Groq hits a temporary rate limit/server error,
+    retry briefly and then fall back to Gemini.
+
+    Gemini also gets its own retry handling for temporary
+    503/429/500/502/504 errors.
+
+    Existing callers continue receiving a response object
+    with the same structure:
+
+        response.choices[0].message.content
+    """
+
+    last_error = None
+
+    # =====================================================
+    # 1. TRY GROQ
+    # =====================================================
+
+    for attempt in range(max_retries + 1):
+
+        try:
+
+            return client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=messages,
+                temperature=temperature,
+            )
+
+        except Exception as exc:
+
+            last_error = exc
+
+            error_text = str(exc).lower()
+
+            is_rate_limit = (
+                "429" in error_text
+                or "rate limit" in error_text
+                or "too many requests" in error_text
+            )
+
+            is_temporary_server_error = any(
+                code in error_text
+                for code in [
+                    "500",
+                    "502",
+                    "503",
+                    "504",
+                ]
+            )
+
+            # ---------------------------------------------
+            # Do not fallback for unrelated errors.
+            # ---------------------------------------------
+
+            if not (
+                is_rate_limit
+                or is_temporary_server_error
+            ):
+                raise
+
+            # ---------------------------------------------
+            # Groq retries exhausted
+            # ---------------------------------------------
+
+            if attempt >= max_retries:
+                break
+
+            wait_seconds = 2 ** attempt
+
+            print(
+                f"⚠️ Groq temporary error. "
+                f"Retrying in {wait_seconds}s "
+                f"(attempt {attempt + 1}/{max_retries})..."
+            )
+
+            time.sleep(wait_seconds)
+
+    # =====================================================
+    # 2. GROQ FAILED → GEMINI FALLBACK
+    # =====================================================
+
+    print(
+        "🔄 Groq unavailable. "
+        "Switching to Gemini fallback..."
+    )
+
+    # -----------------------------------------------------
+    # Build Gemini prompt
+    # -----------------------------------------------------
+
+    system_instruction = ""
+
+    user_parts = []
+
+    for message in messages:
+
+        role = message.get(
+            "role",
+            ""
+        )
+
+        content = message.get(
+            "content",
+            ""
+        )
+
+        if role == "system":
+
+            system_instruction += (
+                str(content)
+                + "\n"
+            )
+
+        elif role == "user":
+
+            user_parts.append(
+                str(content)
+            )
+
+    combined_prompt = "\n\n".join(
+        user_parts
+    )
+
+    # =====================================================
+    # 3. GEMINI RETRY
+    # =====================================================
+
+    gemini_max_retries = 3
+    gemini_last_error = None
+
+    for gemini_attempt in range(
+        gemini_max_retries + 1
+    ):
+
+        try:
+
+            print(
+                f"🤖 Gemini attempt "
+                f"{gemini_attempt + 1}/"
+                f"{gemini_max_retries + 1}"
+            )
+
+            response = (
+                gemini_client.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=combined_prompt,
+                    config={
+                        "system_instruction": (
+                            system_instruction.strip()
+                        ),
+                        "temperature": temperature,
+                        "max_output_tokens": 3000,
+                    },
+                )
+            )
+
+            gemini_text = response.text
+
+            if not gemini_text:
+
+                raise RuntimeError(
+                    "Gemini returned an empty response."
+                )
+
+            print(
+                "✅ Gemini fallback completed successfully."
+            )
+
+            # =================================================
+            # Create Groq-compatible response structure
+            # =================================================
+
+            class GeminiMessage:
+
+                def __init__(self, content):
+                    self.content = content
+
+            class GeminiChoice:
+
+                def __init__(self, message):
+                    self.message = message
+
+            class GeminiResponse:
+
+                def __init__(self, content):
+
+                    self.choices = [
+                        GeminiChoice(
+                            GeminiMessage(content)
+                        )
+                    ]
+
+            return GeminiResponse(
+                gemini_text
+            )
+
+        except Exception as gemini_error:
+
+            gemini_last_error = gemini_error
+
+            error_text = str(
+                gemini_error
+            ).lower()
+
+            is_gemini_temporary_error = (
+                "429" in error_text
+                or "503" in error_text
+                or "500" in error_text
+                or "502" in error_text
+                or "504" in error_text
+                or "unavailable" in error_text
+                or "high demand" in error_text
+                or "resource exhausted" in error_text
+                or "rate limit" in error_text
+            )
+
+            # ---------------------------------------------
+            # Permanent Gemini error
+            # ---------------------------------------------
+
+            if not is_gemini_temporary_error:
+
+                print(
+                    "❌ Gemini fallback failed "
+                    "with a non-retryable error."
+                )
+
+                print(
+                    f"Gemini error: {gemini_error}"
+                )
+
+                raise
+
+            # ---------------------------------------------
+            # Gemini temporary error
+            # ---------------------------------------------
+
+            if (
+                gemini_attempt
+                >= gemini_max_retries
+            ):
+
+                break
+
+            wait_seconds = min(
+                2 ** gemini_attempt,
+                8
+            )
+
+            print(
+                f"⚠️ Gemini temporary error. "
+                f"Retrying in {wait_seconds}s..."
+            )
+
+            print(
+                f"Gemini error: {gemini_error}"
+            )
+
+            time.sleep(
+                wait_seconds
+            )
+
+    # =====================================================
+    # 4. BOTH PROVIDERS FAILED
+    # =====================================================
+
+    print(
+        "❌ Gemini fallback failed "
+        "after all retry attempts."
+    )
+
+    if gemini_last_error:
+
+        print(
+            f"Gemini final error: "
+            f"{gemini_last_error}"
+        )
+
+    # Preserve existing error behavior.
+    # This means callers still receive the original
+    # Groq error if both providers are unavailable.
+
+    if last_error:
+        raise last_error
+
+    if gemini_last_error:
+        raise gemini_last_error
+
+    raise RuntimeError(
+        "Both Groq and Gemini failed."
+    )
 # =========================================================
 # Helper: Clean AI JSON Response
 # =========================================================
 
 def clean_json_response(raw_text: str):
+
     raw_text = raw_text.strip()
 
     if raw_text.startswith("```"):
+
         raw_text = re.sub(
             r"^```(?:json)?\s*",
             "",
@@ -39,6 +369,7 @@ def clean_json_response(raw_text: str):
     raw_text = raw_text.strip()
 
     if not raw_text.startswith("{"):
+
         json_start = raw_text.find("{")
         json_end = raw_text.rfind("}")
 
@@ -66,7 +397,9 @@ def normalize_platform(platform="general"):
     continue using "general".
     """
 
-    platform = (platform or "general").strip().lower()
+    platform = (
+        platform or "general"
+    ).strip().lower()
 
     allowed_platforms = {
         "instagram",
@@ -86,12 +419,17 @@ def normalize_platform(platform="general"):
 # Helper: Normalize Hashtags
 # =========================================================
 
-def normalize_hashtags(hashtags, platform="general"):
+def normalize_hashtags(
+    hashtags,
+    platform="general"
+):
 
     if not isinstance(hashtags, list):
         return []
 
-    platform = normalize_platform(platform)
+    platform = normalize_platform(
+        platform
+    )
 
     cleaned = []
 
@@ -119,14 +457,19 @@ def normalize_hashtags(hashtags, platform="general"):
         "general": 5,
     }
 
-    return cleaned[:limits.get(platform, 5)]
+    return cleaned[
+        :limits.get(platform, 5)
+    ]
 
 
 # =========================================================
 # Helper: Safe Text
 # =========================================================
 
-def safe_text(value, default=""):
+def safe_text(
+    value,
+    default=""
+):
 
     if value is None:
         return default
@@ -141,9 +484,13 @@ def safe_text(value, default=""):
 # Helper: Platform Rules
 # =========================================================
 
-def get_platform_content_rules(platform="general"):
+def get_platform_content_rules(
+    platform="general"
+):
 
-    platform = normalize_platform(platform)
+    platform = normalize_platform(
+        platform
+    )
 
     rules = {
 
@@ -207,9 +554,14 @@ def get_platform_content_rules(platform="general"):
 # Helper: Platform Hashtag Fallback
 # =========================================================
 
-def get_hashtag_fallbacks(topic, platform="general"):
+def get_hashtag_fallbacks(
+    topic,
+    platform="general"
+):
 
-    platform = normalize_platform(platform)
+    platform = normalize_platform(
+        platform
+    )
 
     topic_clean = re.sub(
         r"[^a-zA-Z0-9]",
@@ -577,9 +929,11 @@ Use exactly this structure:
 Do not include anything outside the JSON.
 """
 
-    response = client.chat.completions.create(
+    # -----------------------------------------------------
+    # Groq Content Generation
+    # -----------------------------------------------------
 
-        model="openai/gpt-oss-120b",
+    response = create_groq_completion(
 
         messages=[
 
@@ -602,7 +956,7 @@ Do not include anything outside the JSON.
 
         ],
 
-        temperature=0.65
+        temperature=0.65,
     )
 
     raw_content = response.choices[0].message.content
@@ -960,9 +1314,11 @@ OUTPUT
 }}
 """
 
-    response = client.chat.completions.create(
+    # -----------------------------------------------------
+    # Groq News Content Generation
+    # -----------------------------------------------------
 
-        model="openai/gpt-oss-120b",
+    response = create_groq_completion(
 
         messages=[
 
@@ -984,7 +1340,7 @@ OUTPUT
 
         ],
 
-        temperature=0.35
+        temperature=0.35,
     )
 
     raw_content = response.choices[0].message.content

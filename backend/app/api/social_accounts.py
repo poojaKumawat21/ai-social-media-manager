@@ -18,6 +18,11 @@ from app.services.oauth_service import (
     build_instagram_authorization_url,
     exchange_code_for_access_token,
     exchange_for_long_lived_token,
+    generate_x_code_verifier,
+    generate_x_code_challenge,
+    build_x_authorization_url,
+    exchange_x_code_for_access_token,
+    get_x_current_user,
 )
 
 from app.services.linkedin_oauth_service import (
@@ -151,10 +156,11 @@ def create_social_account(
             )
 
         allowed_platforms = {
-            "instagram",
-            "linkedin",
-            "whatsapp",
-        }
+    "instagram",
+    "linkedin",
+    "whatsapp",
+    "x",
+}
 
         if platform not in allowed_platforms:
             raise HTTPException(
@@ -1292,6 +1298,436 @@ def linkedin_oauth_callback(
             "platform": "linkedin",
             "platform_user_id": linkedin_user_id,
             "account_name": name or "LinkedIn Account",
+            "status": "connected",
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+# =========================================================
+# START X OAUTH
+# =========================================================
+
+@router.get("/oauth/x/start")
+def start_x_oauth(
+    user_id: str = Depends(get_current_user),
+):
+    try:
+
+        db = get_database_client()
+
+        # -------------------------------------------------
+        # Generate OAuth state
+        # -------------------------------------------------
+
+        state = generate_oauth_state()
+
+        expires_at = get_oauth_state_expiry(
+            minutes=10
+        )
+
+        # -------------------------------------------------
+        # Generate PKCE verifier + challenge
+        # -------------------------------------------------
+
+        code_verifier = generate_x_code_verifier()
+
+        code_challenge = generate_x_code_challenge(
+            code_verifier
+        )
+
+        # -------------------------------------------------
+        # Save state + PKCE verifier
+        # -------------------------------------------------
+
+        state_response = (
+            db.table("oauth_states")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "platform": "x",
+                    "state": state,
+                    "expires_at": expires_at,
+                    "used": False,
+                    "code_verifier": code_verifier,
+                }
+            )
+            .execute()
+        )
+
+        if not state_response.data:
+            raise HTTPException(
+                status_code=500,
+                detail="Could not create X OAuth state.",
+            )
+
+        # -------------------------------------------------
+        # Build X authorization URL
+        # -------------------------------------------------
+
+        authorization_url = build_x_authorization_url(
+            state=state,
+            code_challenge=code_challenge,
+        )
+
+        return {
+            "message": "X OAuth started.",
+            "authorization_url": authorization_url,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+# =========================================================
+# X OAUTH CALLBACK
+# =========================================================
+
+@router.get("/oauth/x/callback")
+def x_oauth_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    try:
+
+        # -------------------------------------------------
+        # X returned an OAuth error
+        # -------------------------------------------------
+
+        if error:
+
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "X OAuth authorization failed.",
+                    "error": error,
+                    "error_description": error_description,
+                },
+            )
+
+        # -------------------------------------------------
+        # Validate callback parameters
+        # -------------------------------------------------
+
+        if not code:
+            raise HTTPException(
+                status_code=400,
+                detail="X authorization code is missing.",
+            )
+
+        if not state:
+            raise HTTPException(
+                status_code=400,
+                detail="X OAuth state is missing.",
+            )
+
+        db = get_database_client()
+
+        # -------------------------------------------------
+        # Find OAuth state
+        # -------------------------------------------------
+
+        state_response = (
+            db.table("oauth_states")
+            .select(
+                "id, user_id, platform, state, "
+                "expires_at, used, code_verifier"
+            )
+            .eq("state", state)
+            .eq("platform", "x")
+            .limit(1)
+            .execute()
+        )
+
+        if not state_response.data:
+
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid X OAuth state.",
+            )
+
+        oauth_state = state_response.data[0]
+
+        # -------------------------------------------------
+        # Prevent state reuse
+        # -------------------------------------------------
+
+        if oauth_state.get("used"):
+
+            raise HTTPException(
+                status_code=400,
+                detail="X OAuth state has already been used.",
+            )
+
+        # -------------------------------------------------
+        # Check expiry
+        # -------------------------------------------------
+
+        expires_at = oauth_state.get("expires_at")
+
+        if expires_at:
+
+            expires_at_dt = parse_oauth_expiry(
+                expires_at
+            )
+
+            if expires_at_dt <= datetime.now(
+                timezone.utc
+            ):
+
+                raise HTTPException(
+                    status_code=400,
+                    detail="X OAuth state has expired.",
+                )
+
+        # -------------------------------------------------
+        # Get PKCE verifier
+        # -------------------------------------------------
+
+        code_verifier = oauth_state.get(
+            "code_verifier"
+        )
+
+        if not code_verifier:
+
+            raise HTTPException(
+                status_code=400,
+                detail="X PKCE code verifier is missing.",
+            )
+
+        # -------------------------------------------------
+        # Exchange authorization code
+        # -------------------------------------------------
+
+        try:
+
+            token_data = (
+                exchange_x_code_for_access_token(
+                    code=code,
+                    code_verifier=code_verifier,
+                )
+            )
+
+        except Exception as e:
+
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "X token exchange failed.",
+                    "error": str(e),
+                },
+            )
+
+        access_token = token_data.get(
+            "access_token"
+        )
+
+        if not access_token:
+
+            raise HTTPException(
+                status_code=400,
+                detail="X access token was not returned.",
+            )
+
+        # -------------------------------------------------
+        # Get authenticated X user
+        # -------------------------------------------------
+
+        try:
+
+            x_user = get_x_current_user(
+                access_token
+            )
+
+        except Exception as e:
+
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Could not fetch X profile.",
+                    "error": str(e),
+                },
+            )
+
+        x_user_id = x_user.get("id")
+        x_username = x_user.get("username")
+        x_name = x_user.get("name")
+
+        if not x_user_id:
+
+            raise HTTPException(
+                status_code=400,
+                detail="X user ID was not returned.",
+            )
+
+        # -------------------------------------------------
+        # Calculate token expiry
+        # -------------------------------------------------
+
+        expires_in = token_data.get(
+            "expires_in"
+        )
+
+        token_expires_at = None
+
+        if expires_in:
+
+            try:
+
+                token_expires_at = (
+                    datetime.now(timezone.utc)
+                    + timedelta(
+                        seconds=int(expires_in)
+                    )
+                ).isoformat()
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                token_expires_at = None
+
+        # -------------------------------------------------
+        # Check existing X account
+        # -------------------------------------------------
+
+        existing_account = (
+            db.table("social_accounts")
+            .select("id")
+            .eq(
+                "user_id",
+                oauth_state["user_id"],
+            )
+            .eq(
+                "platform",
+                "x",
+            )
+            .limit(1)
+            .execute()
+        )
+
+        # -------------------------------------------------
+        # Prepare account data
+        # -------------------------------------------------
+
+        account_data = {
+            "user_id": oauth_state["user_id"],
+            "platform": "x",
+            "platform_user_id": str(x_user_id),
+            "account_name": (
+                f"@{x_username}"
+                if x_username
+                else x_name or "X Account"
+            ),
+            "access_token": access_token,
+            "refresh_token": token_data.get(
+                "refresh_token"
+            ),
+            "token_expires_at": token_expires_at,
+            "scopes": [
+                "tweet.read",
+                "tweet.write",
+                "users.read",
+                "offline.access",
+            ],
+            "status": "connected",
+            "updated_at": (
+                datetime.now(
+                    timezone.utc
+                ).isoformat()
+            ),
+        }
+
+        # -------------------------------------------------
+        # Save / update X account
+        # -------------------------------------------------
+
+        if existing_account.data:
+
+            account_id = (
+                existing_account.data[0]["id"]
+            )
+
+            update_response = (
+                db.table("social_accounts")
+                .update(account_data)
+                .eq(
+                    "id",
+                    account_id,
+                )
+                .eq(
+                    "user_id",
+                    oauth_state["user_id"],
+                )
+                .execute()
+            )
+
+            if not update_response.data:
+
+                raise HTTPException(
+                    status_code=500,
+                    detail="X account could not be updated.",
+                )
+
+        else:
+
+            insert_response = (
+                db.table("social_accounts")
+                .insert(account_data)
+                .execute()
+            )
+
+            if not insert_response.data:
+
+                raise HTTPException(
+                    status_code=500,
+                    detail="X account could not be saved.",
+                )
+
+        # -------------------------------------------------
+        # Mark OAuth state as used
+        # -------------------------------------------------
+
+        (
+            db.table("oauth_states")
+            .update({
+                "used": True,
+            })
+            .eq(
+                "id",
+                oauth_state["id"],
+            )
+            .execute()
+        )
+
+        # -------------------------------------------------
+        # Success
+        # -------------------------------------------------
+
+        return {
+            "message": "X account connected successfully.",
+            "platform": "x",
+            "platform_user_id": str(x_user_id),
+            "account_name": (
+                f"@{x_username}"
+                if x_username
+                else x_name or "X Account"
+            ),
             "status": "connected",
         }
 

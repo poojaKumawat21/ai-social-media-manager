@@ -116,7 +116,6 @@ def schedule_from_database(setting_id):
     and create a scheduler job.
     """
 
-    # Get automation setting from database
     setting = get_automation_setting(setting_id)
 
     if not setting:
@@ -125,52 +124,42 @@ def schedule_from_database(setting_id):
             "message": "Automation setting not found."
         }
 
-    # Check whether automation is enabled
     if not setting.get("is_enabled", False):
-
         return {
             "status": "disabled",
             "message": "Automation is disabled.",
             "setting_id": setting_id
         }
 
-    # Check whether automation is paused
     if setting.get("is_paused", False):
-
         return {
             "status": "paused",
             "message": "Automation is currently paused.",
             "setting_id": setting_id
         }
 
-    # Currently supporting daily frequency
     frequency = setting.get("frequency", "daily")
 
     if frequency != "daily":
-
         return {
             "status": "error",
             "message": "Currently only daily frequency is supported.",
             "frequency": frequency
         }
 
-    # Get posting time from database
     posting_time = setting.get("posting_time")
 
     if not posting_time:
-
         return {
             "status": "error",
             "message": "Posting time is missing."
         }
 
-    # Convert database time into hour and minute
     time_parts = str(posting_time).split(":")
 
     hour = int(time_parts[0])
     minute = int(time_parts[1])
 
-    # Add daily scheduler job
     job = add_daily_job(
         niche=setting["niche"],
         topic=setting["topic"],
@@ -198,7 +187,6 @@ def remove_daily_job(profile_id=None):
     job_id = f"daily_post_{profile_id or 'default'}"
 
     try:
-
         scheduler.remove_job(job_id)
 
         return {
@@ -208,7 +196,6 @@ def remove_daily_job(profile_id=None):
         }
 
     except Exception:
-
         return {
             "status": "not_found",
             "message": "No daily job found.",
@@ -234,21 +221,40 @@ def get_scheduled_jobs():
         }
         for job in jobs
     ]
+
+
 # =========================================================
 # ONE-TIME SCHEDULED POST
 # =========================================================
 
 from app.database.supabase import get_database_client
+
 from app.services.linkedin_publish_service import (
     publish_linkedin_text_post,
     publish_linkedin_multi_image_post,
+)
+
+from app.services.instagram_publish_service import (
+    publish_instagram_image_post,
+)
+
+from app.services.x_publish_service import (
+    publish_x_text_post,
+    publish_x_image_post,
 )
 
 
 def run_scheduled_post(scheduled_post_id):
     """
     Publish a one-time scheduled post.
-    Platform-specific publishing is handled here.
+
+    Supported platforms:
+    - LinkedIn
+    - Instagram
+    - X
+
+    The post is NOT generated again.
+    The already-generated post is published.
     """
 
     print(
@@ -288,12 +294,38 @@ def run_scheduled_post(scheduled_post_id):
             return
 
         post_id = scheduled_post.get("post_id")
+
         platform = (
             scheduled_post.get("platform")
             or "linkedin"
-        ).lower()
+        ).strip().lower()
 
         user_id = scheduled_post.get("user_id")
+
+        if not post_id:
+            raise RuntimeError(
+                "Scheduled post does not contain a post_id."
+            )
+
+        if not user_id:
+            raise RuntimeError(
+                "Scheduled post does not contain a user_id."
+            )
+
+        # -------------------------------------------------
+        # Validate supported platform
+        # -------------------------------------------------
+
+        supported_platforms = {
+            "linkedin",
+            "instagram",
+            "x",
+        }
+
+        if platform not in supported_platforms:
+            raise RuntimeError(
+                f"Platform '{platform}' is not supported yet."
+            )
 
         # -------------------------------------------------
         # Get original post
@@ -316,12 +348,18 @@ def run_scheduled_post(scheduled_post_id):
 
         post = post_response.data[0]
 
+        # -------------------------------------------------
+        # Prepare post content
+        # -------------------------------------------------
+
         caption = post.get("caption")
 
         if not caption:
             raise RuntimeError(
                 "Post caption is empty."
             )
+
+        caption = str(caption).strip()
 
         # -------------------------------------------------
         # Prepare hashtags
@@ -338,19 +376,25 @@ def run_scheduled_post(scheduled_post_id):
             )
 
             caption = (
-                f"{caption.strip()}\n\n"
+                f"{caption}\n\n"
                 f"{hashtag_text}"
             )
 
+        # -------------------------------------------------
+        # Prepare media
+        # -------------------------------------------------
+
         media_urls = post.get("media_urls") or []
 
-        # -------------------------------------------------
-        # PLATFORM DISPATCHER
-        # -------------------------------------------------
+        if not isinstance(media_urls, list):
+            media_urls = [media_urls]
+
+        # =================================================
+        # LINKEDIN
+        # =================================================
 
         if platform == "linkedin":
 
-            # Get connected LinkedIn account
             account_response = (
                 db
                 .table("social_accounts")
@@ -367,9 +411,7 @@ def run_scheduled_post(scheduled_post_id):
                     "LinkedIn account is not connected."
                 )
 
-            linkedin_account = (
-                account_response.data[0]
-            )
+            linkedin_account = account_response.data[0]
 
             access_token = linkedin_account.get(
                 "access_token"
@@ -389,19 +431,13 @@ def run_scheduled_post(scheduled_post_id):
                     "LinkedIn profile ID is missing."
                 )
 
-            # -------------------------------------------------
-            # Publish according to media count
-            # -------------------------------------------------
-
             if len(media_urls) >= 2:
 
-                result = (
-                    publish_linkedin_multi_image_post(
-                        access_token=access_token,
-                        author_id=author_id,
-                        text=caption,
-                        image_urls=media_urls,
-                    )
+                result = publish_linkedin_multi_image_post(
+                    access_token=access_token,
+                    author_id=author_id,
+                    text=caption,
+                    image_urls=media_urls,
                 )
 
             elif len(media_urls) == 1:
@@ -421,15 +457,127 @@ def run_scheduled_post(scheduled_post_id):
                     text=caption,
                 )
 
+        # =================================================
+        # X
+        # =================================================
+
+        elif platform == "x":
+
+            account_response = (
+                db
+                .table("social_accounts")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("platform", "x")
+                .eq("status", "connected")
+                .limit(1)
+                .execute()
+            )
+
+            if not account_response.data:
+                raise RuntimeError(
+                    "X account is not connected."
+                )
+
+            x_account = account_response.data[0]
+
+            access_token = x_account.get(
+                "access_token"
+            )
+
+            if not access_token:
+                raise RuntimeError(
+                    "X access token is missing."
+                )
+
+            # X has a 280-character limit.
+            if len(caption) > 280:
+                raise RuntimeError(
+                    f"X post exceeds 280 characters "
+                    f"({len(caption)})."
+                )
+
+            # Preserve existing scheduling behavior:
+            # use image when generated media exists,
+            # otherwise publish text only.
+            if media_urls:
+
+                result = publish_x_image_post(
+                    access_token=access_token,
+                    text=caption,
+                    image_url=media_urls[0],
+                )
+
+            else:
+
+                result = publish_x_text_post(
+                    access_token=access_token,
+                    text=caption,
+                )
+
+        # =================================================
+        # INSTAGRAM
+        # =================================================
+
+        elif platform == "instagram":
+
+            account_response = (
+                db
+                .table("social_accounts")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("platform", "instagram")
+                .eq("status", "connected")
+                .limit(1)
+                .execute()
+            )
+
+            if not account_response.data:
+                raise RuntimeError(
+                    "Instagram account is not connected."
+                )
+
+            instagram_account = account_response.data[0]
+
+            access_token = instagram_account.get(
+                "access_token"
+            )
+
+            instagram_user_id = instagram_account.get(
+                "platform_user_id"
+            )
+
+            if not access_token:
+                raise RuntimeError(
+                    "Instagram access token is missing."
+                )
+
+            if not instagram_user_id:
+                raise RuntimeError(
+                    "Instagram user ID is missing."
+                )
+
+            if not media_urls:
+                raise RuntimeError(
+                    "Instagram scheduling requires an image."
+                )
+
+            result = publish_instagram_image_post(
+                access_token=access_token,
+                instagram_user_id=instagram_user_id,
+                image_url=media_urls[0],
+                caption=caption,
+            )
+
         else:
 
             raise RuntimeError(
                 f"Platform '{platform}' is not supported yet."
             )
 
-        # -------------------------------------------------
-        # Update scheduled post
-        # -------------------------------------------------
+        # =================================================
+        # UPDATE SCHEDULED POST
+        # =================================================
 
         from datetime import datetime, timezone
 
@@ -445,9 +593,9 @@ def run_scheduled_post(scheduled_post_id):
             scheduled_post_id
         ).execute()
 
-        # -------------------------------------------------
-        # Update original post
-        # -------------------------------------------------
+        # =================================================
+        # UPDATE ORIGINAL POST
+        # =================================================
 
         db.table("posts").update(
             {
@@ -479,7 +627,7 @@ def run_scheduled_post(scheduled_post_id):
             f"❌ Scheduled post failed: {e}"
         )
 
-        # Mark scheduled post as failed
+        # Mark only this scheduled platform as failed.
         db.table("scheduled_posts").update(
             {
                 "status": "failed",

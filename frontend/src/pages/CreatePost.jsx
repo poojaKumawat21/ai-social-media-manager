@@ -1,11 +1,55 @@
 import React, { useEffect, useState } from "react";
+
 import "./CreatePost.css";
 import api from "../services/api";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+  import.meta.env.VITE_API_BASE_URL ||
+  "http://127.0.0.1:8000";
+
+const USER_ID_KEY = "user_id";
 
 function CreatePost() {
+  // ============================================================
+  // CURRENT USER
+  // ============================================================
+
+  const [currentUserId, setCurrentUserId] = useState(
+    () => localStorage.getItem(USER_ID_KEY)
+  );
+
+  // ============================================================
+  // USER-SCOPED STORAGE KEYS
+  // ============================================================
+
+  const getUserStorageKey = (baseKey) => {
+    if (!currentUserId) {
+      return null;
+    }
+
+    return `${baseKey}_${currentUserId}`;
+  };
+
+  const DRAFT_KEY = getUserStorageKey(
+    "postpilot_create_post_draft"
+  );
+
+  const RESULT_KEY = getUserStorageKey(
+    "postpilot_create_post_result"
+  );
+
+  const PENDING_KEY = getUserStorageKey(
+    "postpilot_create_post_pending"
+  );
+
+  const EDIT_DRAFT_KEY = getUserStorageKey(
+    "postpilot_edit_draft"
+  );
+
+  // ============================================================
+  // FORM
+  // ============================================================
+
   const [topic, setTopic] = useState("");
   const [description, setDescription] = useState("");
 
@@ -14,59 +58,116 @@ function CreatePost() {
   // ============================================================
 
   const [platforms, setPlatforms] = useState([]);
-  const [connectedAccounts, setConnectedAccounts] = useState([]);
-  const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
+  const [connectedAccounts, setConnectedAccounts] =
+    useState([]);
+  const [isLoadingAccounts, setIsLoadingAccounts] =
+    useState(true);
 
   // ============================================================
   // AI
   // ============================================================
 
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGenerating, setIsGenerating] =
+    useState(false);
+
   const [aiPlan, setAiPlan] = useState(null);
-  const [generatedImages, setGeneratedImages] = useState([]);
+
+  const [generatedImages, setGeneratedImages] =
+    useState([]);
+
   const [postId, setPostId] = useState(null);
 
   // ============================================================
   // PUBLISH
   // ============================================================
 
-  const [publishingPlatform, setPublishingPlatform] = useState(null);
-  const [isPublishingAll, setIsPublishingAll] = useState(false);
+  const [publishingPlatform, setPublishingPlatform] =
+    useState(null);
+
+  const [isPublishingAll, setIsPublishingAll] =
+    useState(false);
+
+  // false = Text + Hashtags
+  // true = Image + Text + Hashtags
+  const [xIncludeImage, setXIncludeImage] =
+    useState(false);
 
   // ============================================================
   // DRAFT
   // ============================================================
 
-  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] =
+    useState(false);
 
   // ============================================================
   // SCHEDULE
   // ============================================================
 
   const [scheduledAt, setScheduledAt] = useState("");
-  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
-  const [isScheduling, setIsScheduling] = useState(false);
+  const [isScheduleOpen, setIsScheduleOpen] =
+    useState(false);
+  const [isScheduling, setIsScheduling] =
+    useState(false);
 
   // ============================================================
-  // LOCAL STORAGE KEYS
+  // SYNC CURRENT USER
   // ============================================================
 
-  const DRAFT_KEY = "postpilot_create_post_draft";
-  const RESULT_KEY = "postpilot_create_post_result";
-  const PENDING_KEY = "postpilot_create_post_pending";
+  useEffect(() => {
+    const syncCurrentUser = () => {
+      const loggedInUserId =
+        localStorage.getItem(USER_ID_KEY);
+
+      setCurrentUserId(loggedInUserId);
+    };
+
+    syncCurrentUser();
+
+    window.addEventListener(
+      "storage",
+      syncCurrentUser
+    );
+
+    return () => {
+      window.removeEventListener(
+        "storage",
+        syncCurrentUser
+      );
+    };
+  }, []);
 
   // ============================================================
   // LOAD CONNECTED ACCOUNTS
   // ============================================================
 
   useEffect(() => {
+    if (!currentUserId) {
+      setConnectedAccounts([]);
+      setPlatforms([]);
+      setIsLoadingAccounts(false);
+      return;
+    }
+
+    let cancelled = false;
+
     const loadConnectedAccounts = async () => {
       try {
         setIsLoadingAccounts(true);
 
-        const result = await api.get("/social-accounts");
+        const result = await api.get(
+          "/social-accounts"
+        );
 
-        const accounts = result?.accounts || result || [];
+        if (cancelled) {
+          return;
+        }
+
+        const accounts =
+          result?.accounts ||
+          result?.data?.accounts ||
+          result?.data ||
+          result ||
+          [];
 
         const connected = Array.isArray(accounts)
           ? accounts.filter(
@@ -78,36 +179,40 @@ function CreatePost() {
 
         setConnectedAccounts(connected);
 
-        // --------------------------------------------------------
-        // Keep only platforms that are actually connected.
-        // If nothing is selected, select the first connected
-        // platform to preserve the old default behavior.
-        // --------------------------------------------------------
-
         setPlatforms((current) => {
-          const connectedPlatformNames = connected
-            .map((account) =>
-              account?.platform?.toLowerCase()
-            )
-            .filter(Boolean);
+          const connectedPlatformNames =
+            connected
+              .map((account) =>
+                account?.platform?.toLowerCase()
+              )
+              .filter(Boolean);
 
-          const validCurrent = current.filter((platform) =>
-            connectedPlatformNames.includes(
-              platform.toLowerCase()
-            )
+          const validCurrent = current.filter(
+            (platform) =>
+              connectedPlatformNames.includes(
+                platform.toLowerCase()
+              )
           );
 
           if (validCurrent.length > 0) {
             return validCurrent;
           }
 
-          if (connectedPlatformNames.length > 0) {
-            return [connectedPlatformNames[0]];
+          if (
+            connectedPlatformNames.length > 0
+          ) {
+            return [
+              connectedPlatformNames[0],
+            ];
           }
 
           return [];
         });
       } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
         console.error(
           "Failed to load connected accounts:",
           error
@@ -116,26 +221,44 @@ function CreatePost() {
         setConnectedAccounts([]);
         setPlatforms([]);
       } finally {
-        setIsLoadingAccounts(false);
+        if (!cancelled) {
+          setIsLoadingAccounts(false);
+        }
       }
     };
 
     loadConnectedAccounts();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId]);
 
   // ============================================================
-  // RESTORE SAVED DATA
+  // RESTORE USER-SCOPED SAVED DATA
   // ============================================================
 
   useEffect(() => {
+    if (!currentUserId) {
+      return;
+    }
+
     try {
-      const savedDraft = localStorage.getItem(DRAFT_KEY);
+      // --------------------------------------------------------
+      // RESTORE DRAFT
+      // --------------------------------------------------------
+
+      const savedDraft = DRAFT_KEY
+        ? localStorage.getItem(DRAFT_KEY)
+        : null;
 
       if (savedDraft) {
         const draft = JSON.parse(savedDraft);
 
         setTopic(draft.topic || "");
-        setDescription(draft.description || "");
+        setDescription(
+          draft.description || ""
+        );
 
         if (Array.isArray(draft.platforms)) {
           setPlatforms(
@@ -156,16 +279,23 @@ function CreatePost() {
       // RESTORE GENERATED RESULT
       // --------------------------------------------------------
 
-      const savedResult =
-        localStorage.getItem(RESULT_KEY);
+      const savedResult = RESULT_KEY
+        ? localStorage.getItem(RESULT_KEY)
+        : null;
 
       if (savedResult) {
         const result = JSON.parse(savedResult);
 
-        setAiPlan(result.aiPlan || null);
+        setAiPlan(
+          result.aiPlan || null
+        );
 
         setGeneratedImages(
-          result.generatedImages || []
+          Array.isArray(
+            result.generatedImages
+          )
+            ? result.generatedImages
+            : []
         );
 
         if (Array.isArray(result.platforms)) {
@@ -183,20 +313,26 @@ function CreatePost() {
         }
       }
 
-      // ========================================================
-      // EDIT SAVED DRAFT
-      // ========================================================
+      // --------------------------------------------------------
+      // RESTORE EDIT DRAFT
+      // --------------------------------------------------------
 
-      const editDraft = localStorage.getItem(
-        "postpilot_edit_draft"
-      );
+      const editDraft = EDIT_DRAFT_KEY
+        ? localStorage.getItem(
+            EDIT_DRAFT_KEY
+          )
+        : null;
 
       if (editDraft) {
-        const draft = JSON.parse(editDraft);
+        const draft = JSON.parse(
+          editDraft
+        );
 
         setPostId(draft.id || null);
 
-        setTopic(draft.topic || "");
+        setTopic(
+          draft.topic || ""
+        );
 
         setDescription(
           draft.caption || ""
@@ -217,7 +353,13 @@ function CreatePost() {
         }
 
         setGeneratedImages(
-          (draft.media_urls || []).filter(Boolean)
+          Array.isArray(
+            draft.media_urls
+          )
+            ? draft.media_urls.filter(
+                Boolean
+              )
+            : []
         );
 
         setAiPlan({
@@ -242,11 +384,12 @@ function CreatePost() {
             draft.style ||
             "AI Selected",
 
-          format: "single_post",
+          format:
+            "single_post",
         });
 
         localStorage.removeItem(
-          "postpilot_edit_draft"
+          EDIT_DRAFT_KEY
         );
       }
     } catch (error) {
@@ -255,7 +398,59 @@ function CreatePost() {
         error
       );
     }
-  }, []);
+  }, [
+    currentUserId,
+    DRAFT_KEY,
+    RESULT_KEY,
+    EDIT_DRAFT_KEY,
+  ]);
+
+  // ============================================================
+  // X POST TEXT
+  // ============================================================
+
+  const getXPostText = () => {
+    const caption =
+      aiPlan?.caption ||
+      aiPlan?.description ||
+      "";
+
+    const hashtags = Array.isArray(
+      aiPlan?.hashtags
+    )
+      ? aiPlan.hashtags
+      : [];
+
+    const hashtagText = hashtags.length
+      ? hashtags
+          .map((hashtag) => {
+            const value =
+              String(hashtag).trim();
+
+            if (!value) {
+              return "";
+            }
+
+            return value.startsWith("#")
+              ? value
+              : `#${value}`;
+          })
+          .filter(Boolean)
+          .join(" ")
+      : "";
+
+    return [caption.trim(), hashtagText]
+      .filter(Boolean)
+      .join("\n\n");
+  };
+
+  const xPostText = getXPostText();
+
+  const xCharacterCount =
+    xPostText.length;
+
+  const isXOverLimit =
+    xCharacterCount > 280;
 
   // ============================================================
   // SAVE DRAFT
@@ -290,18 +485,23 @@ function CreatePost() {
           }
         );
 
-        alert("Draft saved successfully!");
+        alert(
+          "Draft saved successfully!"
+        );
       } else {
         result = await api.post(
           "/posts/draft",
           {
             topic: topic.trim(),
-            description: description.trim(),
+            description:
+              description.trim(),
             platforms,
           }
         );
 
-        alert("Draft saved successfully!");
+        alert(
+          "Draft saved successfully!"
+        );
       }
 
       console.log(
@@ -328,7 +528,8 @@ function CreatePost() {
   // ============================================================
 
   const handlePublish = async (
-    targetPlatform
+    targetPlatform,
+    includeImage = false
   ) => {
     if (!postId) {
       alert(
@@ -381,6 +582,39 @@ function CreatePost() {
       }
 
       // --------------------------------------------------------
+      // X
+      // --------------------------------------------------------
+
+      else if (
+        normalizedPlatform === "x"
+      ) {
+        if (isXOverLimit) {
+          alert(
+            `X post is ${xCharacterCount} characters. Maximum allowed is 280.`
+          );
+          return;
+        }
+
+        if (
+          includeImage &&
+          generatedImages.length === 0
+        ) {
+          alert(
+            "Image publishing is selected, but no generated image is available."
+          );
+          return;
+        }
+
+        result = await api.post(
+          `/posts/${postId}/publish/x`,
+          {
+            include_image:
+              includeImage,
+          }
+        );
+      }
+
+      // --------------------------------------------------------
       // OTHER PLATFORMS
       // --------------------------------------------------------
 
@@ -390,7 +624,6 @@ function CreatePost() {
             normalizedPlatform
           )} is not connected to a publisher yet.`
         );
-
         return;
       }
 
@@ -422,7 +655,7 @@ function CreatePost() {
   };
 
   // ============================================================
-  // PUBLISH TO ALL SELECTED / CONNECTED PLATFORMS
+  // PUBLISH ALL
   // ============================================================
 
   const handlePublishAll = async () => {
@@ -445,21 +678,16 @@ function CreatePost() {
     const results = [];
 
     try {
-      // --------------------------------------------------------
-      // Publish sequentially.
-      //
-      // Same post_id is used for every platform.
-      //
-      // Instagram -> /publish/instagram
-      // LinkedIn  -> /publish/linkedin
-      // --------------------------------------------------------
-
       for (const targetPlatform of platforms) {
         const normalizedPlatform =
           targetPlatform.toLowerCase();
 
         try {
           let result;
+
+          // ----------------------------------------------------
+          // LINKEDIN
+          // ----------------------------------------------------
 
           if (
             normalizedPlatform ===
@@ -468,14 +696,68 @@ function CreatePost() {
             result = await api.post(
               `/posts/${postId}/publish/linkedin`
             );
-          } else if (
+          }
+
+          // ----------------------------------------------------
+          // INSTAGRAM
+          // ----------------------------------------------------
+
+          else if (
             normalizedPlatform ===
             "instagram"
           ) {
             result = await api.post(
               `/posts/${postId}/publish/instagram`
             );
-          } else {
+          }
+
+          // ----------------------------------------------------
+          // X
+          // ----------------------------------------------------
+
+          else if (
+            normalizedPlatform === "x"
+          ) {
+            if (isXOverLimit) {
+              results.push({
+                platform:
+                  normalizedPlatform,
+                success: false,
+                error: `X post exceeds 280 characters (${xCharacterCount}).`,
+              });
+
+              continue;
+            }
+
+            if (
+              xIncludeImage &&
+              generatedImages.length === 0
+            ) {
+              results.push({
+                platform:
+                  normalizedPlatform,
+                success: false,
+                error:
+                  "X image publishing was selected but no image is available.",
+              });
+
+              continue;
+            }
+
+            result = await api.post(
+              `/posts/${postId}/publish/x`,
+              {
+                include_image:
+                  xIncludeImage,
+              }
+            );
+          }
+
+          // ----------------------------------------------------
+          // UNSUPPORTED
+          // ----------------------------------------------------
+
+          else {
             results.push({
               platform:
                 normalizedPlatform,
@@ -509,10 +791,6 @@ function CreatePost() {
           });
         }
       }
-
-      // --------------------------------------------------------
-      // RESULT SUMMARY
-      // --------------------------------------------------------
 
       console.log(
         "PUBLISH ALL RESULTS:",
@@ -566,91 +844,107 @@ function CreatePost() {
 
   const handleSchedulePost = async () => {
     if (!postId) {
-      alert(
-        "Please generate a post first."
-      );
-      return;
+      alert("Please generate a post first.");
+      return false;
     }
 
     if (!platforms.length) {
-      alert(
-        "Please select at least one platform."
-      );
-      return;
+      alert("Please select at least one platform.");
+      return false;
     }
 
     if (!scheduledAt) {
-      alert(
-        "Please select a date and time."
-      );
-      return;
+      alert("Please select a date and time.");
+      return false;
     }
 
-    const selectedDate =
-      new Date(scheduledAt);
+    const selectedDate = new Date(scheduledAt);
+
+    if (Number.isNaN(selectedDate.getTime())) {
+      alert("Invalid date and time selected.");
+      return false;
+    }
 
     if (selectedDate <= new Date()) {
-      alert(
-        "Please select a future date and time."
-      );
-      return;
+      alert("Please select a future date and time.");
+      return false;
     }
 
     setIsScheduling(true);
 
     try {
-      // --------------------------------------------------------
-      // Currently schedule the first selected platform.
-      // Publishing can still be done independently for every
-      // selected platform.
-      // --------------------------------------------------------
+      const results = [];
 
-      const schedulePlatform =
-        platforms[0];
+      for (const targetPlatform of platforms) {
+        const normalizedPlatform = String(targetPlatform).toLowerCase().trim();
 
-      const result = await api.post(
-        "/scheduled-posts",
-        {
-          post_id: postId,
-          scheduled_at:
-            selectedDate.toISOString(),
-          platform:
-            schedulePlatform,
+        try {
+          const result = await api.post("/scheduled-posts", {
+            post_id: postId,
+            scheduled_at: selectedDate.toISOString(),
+            platform: normalizedPlatform,
+          });
+
+          console.log(`SCHEDULED ${normalizedPlatform.toUpperCase()}:`, result);
+
+          results.push({
+            platform: normalizedPlatform,
+            success: true,
+            result,
+          });
+        } catch (error) {
+          console.error(`Scheduling failed for ${normalizedPlatform}:`, error);
+
+          results.push({
+            platform: normalizedPlatform,
+            success: false,
+            error: error?.message || "Scheduling failed.",
+          });
         }
-      );
+      }
 
-      console.log(
-        "SCHEDULED POST:",
-        result
-      );
+      const successful = results.filter((item) => item.success);
+      const failed = results.filter((item) => !item.success);
 
-      alert(
-        `Post scheduled successfully for ${formatPlatformName(
-          schedulePlatform
-        )}!`
-      );
+      if (successful.length > 0 && failed.length === 0) {
+        const scheduledNames = successful
+          .map((item) => formatPlatformName(item.platform))
+          .join(", \ ");
 
-      setScheduledAt("");
-    } catch (error) {
-      console.error(
-        "Schedule post error:",
-        error
-      );
+        alert(`Post scheduled successfully for ${scheduledNames}!`);
+        setScheduledAt("");
+        setIsScheduleOpen(false);
+        return true;
+      }
 
-      alert(
-        error.message ||
-          "Unable to schedule post."
-      );
+      if (successful.length > 0 && failed.length > 0) {
+        const successfulNames = successful
+          .map((item) => formatPlatformName(item.platform))
+          .join(", \ ");
+        const failedNames = failed
+          .map((item) => formatPlatformName(item.platform))
+          .join(", \ ");
+
+        alert(`Scheduled for: ${successfulNames}. Failed: ${failedNames}.`);
+        return true;
+      }
+
+      alert("Unable to schedule the post for the selected platforms.");
+      return false;
     } finally {
       setIsScheduling(false);
     }
   };
 
   // ============================================================
-  // LOCAL STORAGE - DRAFT
+  // SAVE USER-SCOPED DRAFT TO LOCAL STORAGE
   // ============================================================
 
   useEffect(() => {
+    if (!currentUserId || !DRAFT_KEY) {
+      return;
+    }
+
     localStorage.setItem(
       DRAFT_KEY,
       JSON.stringify({
@@ -660,16 +954,22 @@ function CreatePost() {
       })
     );
   }, [
+    currentUserId,
+    DRAFT_KEY,
     topic,
     description,
     platforms,
   ]);
 
   // ============================================================
-  // LOCAL STORAGE - RESULT
+  // SAVE USER-SCOPED GENERATED RESULT
   // ============================================================
 
   useEffect(() => {
+    if (!currentUserId || !RESULT_KEY) {
+      return;
+    }
+
     if (
       !aiPlan &&
       generatedImages.length === 0
@@ -687,6 +987,8 @@ function CreatePost() {
       })
     );
   }, [
+    currentUserId,
+    RESULT_KEY,
     postId,
     aiPlan,
     generatedImages,
@@ -694,7 +996,7 @@ function CreatePost() {
   ]);
 
   // ============================================================
-  // PLATFORM SELECT / TOGGLE
+  // PLATFORM TOGGLE
   // ============================================================
 
   const togglePlatform = (
@@ -725,6 +1027,13 @@ function CreatePost() {
   // ============================================================
 
   const handleGenerateAI = async () => {
+    if (!currentUserId) {
+      alert(
+        "Your session is not ready. Please login again."
+      );
+      return;
+    }
+
     if (!topic.trim()) {
       alert(
         "Please enter a topic."
@@ -743,35 +1052,26 @@ function CreatePost() {
 
     setAiPlan(null);
     setGeneratedImages([]);
+    setPostId(null);
 
-    localStorage.setItem(
-      PENDING_KEY,
-      JSON.stringify({
-        topic: topic.trim(),
-        platforms,
-        startedAt: Date.now(),
-      })
-    );
+    // ----------------------------------------------------------
+    // USER-SCOPED PENDING STATE
+    // ----------------------------------------------------------
+
+    if (PENDING_KEY) {
+      localStorage.setItem(
+        PENDING_KEY,
+        JSON.stringify({
+          topic: topic.trim(),
+          platforms,
+          startedAt: Date.now(),
+        })
+      );
+    }
 
     try {
       // ========================================================
-      // IMPORTANT:
-      //
-      // ONLY ONE GENERATION REQUEST.
-      //
-      // Backend will run ONE AI pipeline and create ONE post_id.
-      //
-      // Example:
-      //
-      // Instagram + LinkedIn selected
-      //
-      // => ONE /posts/generate call
-      // => ONE AI pipeline
-      // => ONE post_id
-      //
-      // NOT:
-      // Instagram generation
-      // + LinkedIn generation
+      // ONE GENERATION REQUEST ONLY
       // ========================================================
 
       const result = await api.post(
@@ -790,11 +1090,15 @@ function CreatePost() {
       );
 
       // --------------------------------------------------------
-      // SAVE ONE POST ID
+      // ONE POST ID
       // --------------------------------------------------------
 
+      const generatedPostId =
+        result?.post?.id ||
+        null;
+
       setPostId(
-        result?.post?.id || null
+        generatedPostId
       );
 
       // --------------------------------------------------------
@@ -819,17 +1123,19 @@ function CreatePost() {
         combinedPlan
       );
 
-      // ========================================================
-      // GET IMAGE URLS
-      // ========================================================
+      // --------------------------------------------------------
+      // IMAGE URLS
+      // --------------------------------------------------------
 
       let mediaUrls =
-        result?.post?.media_urls ||
-        [];
+        Array.isArray(
+          result?.post?.media_urls
+        )
+          ? result.post.media_urls
+          : [];
 
       // --------------------------------------------------------
-      // FALLBACK 1:
-      // uploaded_images
+      // FALLBACK 1: UPLOADED IMAGES
       // --------------------------------------------------------
 
       if (!mediaUrls.length) {
@@ -848,14 +1154,13 @@ function CreatePost() {
       }
 
       // --------------------------------------------------------
-      // FALLBACK 2:
-      // renderer images
+      // FALLBACK 2: RENDER IMAGES
       // --------------------------------------------------------
 
       if (!mediaUrls.length) {
         mediaUrls = (
-          aiResult?.render
-            ?.images || []
+          aiResult?.render?.images ||
+          []
         )
           .map(
             (image) =>
@@ -897,28 +1202,39 @@ function CreatePost() {
       );
 
       // --------------------------------------------------------
-      // SAVE RESULT
+      // SAVE USER-SCOPED RESULT
       // --------------------------------------------------------
 
-      localStorage.setItem(
-        RESULT_KEY,
-        JSON.stringify({
-          postId:
-            result?.post?.id ||
-            null,
-          aiPlan:
-            combinedPlan,
-          generatedImages:
-            fullImageUrls,
-          platforms:
-            result?.post?.platforms ||
-            platforms,
-        })
-      );
+      if (RESULT_KEY) {
+        localStorage.setItem(
+          RESULT_KEY,
+          JSON.stringify({
+            postId:
+              generatedPostId,
 
-      localStorage.removeItem(
-        PENDING_KEY
-      );
+            aiPlan:
+              combinedPlan,
+
+            generatedImages:
+              fullImageUrls,
+
+            platforms:
+              result?.post
+                ?.platforms ||
+              platforms,
+          })
+        );
+      }
+
+      // --------------------------------------------------------
+      // REMOVE PENDING
+      // --------------------------------------------------------
+
+      if (PENDING_KEY) {
+        localStorage.removeItem(
+          PENDING_KEY
+        );
+      }
 
       alert(
         "AI post generated successfully!"
@@ -929,14 +1245,18 @@ function CreatePost() {
         error
       );
 
-      localStorage.removeItem(
-        PENDING_KEY
-      );
+      if (PENDING_KEY) {
+        localStorage.removeItem(
+          PENDING_KEY
+        );
+      }
+
+      // --------------------------------------------------------
+      // SESSION EXPIRED
+      // --------------------------------------------------------
 
       if (
-        error?.message?.includes(
-          "401"
-        )
+        error?.message?.includes("401")
       ) {
         alert(
           "Your session has expired. Please login again."
@@ -958,6 +1278,8 @@ function CreatePost() {
           "user_email"
         );
 
+        setCurrentUserId(null);
+
         return;
       }
 
@@ -975,6 +1297,13 @@ function CreatePost() {
   // ============================================================
 
   useEffect(() => {
+    if (
+      !currentUserId ||
+      !PENDING_KEY
+    ) {
+      return;
+    }
+
     const pendingData =
       localStorage.getItem(
         PENDING_KEY
@@ -987,10 +1316,9 @@ function CreatePost() {
     let pending;
 
     try {
-      pending =
-        JSON.parse(
-          pendingData
-        );
+      pending = JSON.parse(
+        pendingData
+      );
     } catch {
       localStorage.removeItem(
         PENDING_KEY
@@ -1042,7 +1370,7 @@ function CreatePost() {
           }
 
           // ----------------------------------------------------
-          // RESTORE ONE POST ID
+          // RESTORE POST ID
           // ----------------------------------------------------
 
           setPostId(
@@ -1050,10 +1378,15 @@ function CreatePost() {
               null
           );
 
+          // ----------------------------------------------------
+          // RESTORE PLAN
+          // ----------------------------------------------------
+
           const restoredPlan = {
             headline:
               generatedPost?.post_idea ||
-              generatedPost?.topic,
+              generatedPost?.topic ||
+              "",
 
             caption:
               generatedPost?.caption ||
@@ -1100,6 +1433,10 @@ function CreatePost() {
               }${url}`;
             });
 
+          // ----------------------------------------------------
+          // RESTORE TOPIC
+          // ----------------------------------------------------
+
           setTopic(
             generatedPost?.topic ||
               pending.topic
@@ -1143,25 +1480,31 @@ function CreatePost() {
             mediaUrls
           );
 
-          localStorage.setItem(
-            RESULT_KEY,
-            JSON.stringify({
-              postId:
-                generatedPost?.id ||
-                null,
+          // ----------------------------------------------------
+          // SAVE RESTORED RESULT
+          // ----------------------------------------------------
 
-              aiPlan:
-                restoredPlan,
+          if (RESULT_KEY) {
+            localStorage.setItem(
+              RESULT_KEY,
+              JSON.stringify({
+                postId:
+                  generatedPost?.id ||
+                  null,
 
-              generatedImages:
-                mediaUrls,
+                aiPlan:
+                  restoredPlan,
 
-              platforms:
-                generatedPost?.platforms ||
-                pending?.platforms ||
-                [],
-            })
-          );
+                generatedImages:
+                  mediaUrls,
+
+                platforms:
+                  generatedPost?.platforms ||
+                  pending?.platforms ||
+                  [],
+              })
+            );
+          }
 
           localStorage.removeItem(
             PENDING_KEY
@@ -1220,7 +1563,11 @@ function CreatePost() {
         );
       }
     };
-  }, []);
+  }, [
+    currentUserId,
+    PENDING_KEY,
+    RESULT_KEY,
+  ]);
 
   // ============================================================
   // DISPLAY NAME
@@ -1253,7 +1600,6 @@ function CreatePost() {
       ====================================================== */}
 
       <div className="create-post-header">
-
         <div>
           <span className="create-post-label">
             AI CONTENT STUDIO
@@ -1274,7 +1620,6 @@ function CreatePost() {
           <span></span>
           AI Ready
         </div>
-
       </div>
 
       {/* ======================================================
@@ -1290,9 +1635,7 @@ function CreatePost() {
         <div className="post-editor-card">
 
           <div className="card-title">
-
             <div>
-
               <h2>
                 Post Idea
               </h2>
@@ -1301,9 +1644,7 @@ function CreatePost() {
                 Give AI your topic and
                 optional instructions.
               </p>
-
             </div>
-
           </div>
 
           {/* ==================================================
@@ -1311,7 +1652,6 @@ function CreatePost() {
           ================================================== */}
 
           <div className="form-group">
-
             <label>
               Topic{" "}
               <span className="required">
@@ -1329,7 +1669,6 @@ function CreatePost() {
               }
               placeholder="What do you want to post about?"
             />
-
           </div>
 
           {/* ==================================================
@@ -1337,15 +1676,12 @@ function CreatePost() {
           ================================================== */}
 
           <div className="form-group">
-
             <label>
-
               Description / Instructions
 
               <span className="optional">
                 Optional
               </span>
-
             </label>
 
             <textarea
@@ -1360,7 +1696,6 @@ function CreatePost() {
             />
 
             <div className="content-meta">
-
               <span>
                 {description.length}{" "}
                 characters
@@ -1370,9 +1705,7 @@ function CreatePost() {
                 AI decides the content
                 strategy
               </span>
-
             </div>
-
           </div>
 
           {/* ==================================================
@@ -1380,21 +1713,17 @@ function CreatePost() {
           ================================================== */}
 
           <div className="form-group">
-
             <label>
               Platforms
             </label>
 
             {isLoadingAccounts ? (
-
               <div className="platform-loading">
                 Loading connected platforms...
               </div>
-
-            ) : connectedAccounts.length === 0 ? (
-
+            ) : connectedAccounts.length ===
+              0 ? (
               <div className="platform-empty">
-
                 <strong>
                   No connected platforms
                 </strong>
@@ -1404,16 +1733,11 @@ function CreatePost() {
                   first from Connected
                   Accounts.
                 </span>
-
               </div>
-
             ) : (
-
               <div className="platform-select-grid">
-
                 {connectedAccounts.map(
                   (account) => {
-
                     const platformName =
                       account?.platform?.toLowerCase();
 
@@ -1427,7 +1751,6 @@ function CreatePost() {
                       );
 
                     return (
-
                       <button
                         type="button"
                         key={
@@ -1445,7 +1768,6 @@ function CreatePost() {
                           )
                         }
                       >
-
                         <span className="platform-checkbox">
                           {isSelected
                             ? "✓"
@@ -1453,7 +1775,6 @@ function CreatePost() {
                         </span>
 
                         <span className="platform-select-info">
-
                           <strong>
                             {formatPlatformName(
                               platformName
@@ -1465,17 +1786,12 @@ function CreatePost() {
                               account?.username ||
                               "Connected"}
                           </small>
-
                         </span>
-
                       </button>
-
                     );
                   }
                 )}
-
               </div>
-
             )}
 
             <small className="field-help">
@@ -1484,20 +1800,15 @@ function CreatePost() {
             </small>
 
             {platforms.length > 0 && (
-
               <div className="selected-platform-summary">
-
                 {platforms.length}{" "}
                 platform
                 {platforms.length > 1
                   ? "s"
                   : ""}{" "}
                 selected
-
               </div>
-
             )}
-
           </div>
 
           {/* ==================================================
@@ -1505,17 +1816,14 @@ function CreatePost() {
           ================================================== */}
 
           <div className="ai-strategy-panel">
-
             <div className="ai-strategy-top">
 
               <div className="ai-strategy-brand">
-
                 <div className="ai-strategy-icon">
                   ✦
                 </div>
 
                 <div>
-
                   <span>
                     AI INTELLIGENCE
                   </span>
@@ -1523,21 +1831,16 @@ function CreatePost() {
                   <h3>
                     Content Strategy
                   </h3>
-
                 </div>
-
               </div>
 
               <div className="ai-live-status">
-
                 <i></i>
 
                 {aiPlan
                   ? "Strategy Ready"
                   : "Waiting for AI"}
-
               </div>
-
             </div>
 
             <div className="ai-strategy-line"></div>
@@ -1545,7 +1848,6 @@ function CreatePost() {
             <div className="ai-strategy-content">
 
               <div className="ai-strategy-main">
-
                 <span className="ai-strategy-label">
                   AI RECOMMENDATION
                 </span>
@@ -1559,13 +1861,11 @@ function CreatePost() {
                   {aiPlan?.reasoning ||
                     "AI will analyze your topic, understand the audience and automatically build the most effective content strategy."}
                 </p>
-
               </div>
 
               <div className="ai-strategy-data">
 
                 <div>
-
                   <span>
                     FORMAT
                   </span>
@@ -1576,14 +1876,12 @@ function CreatePost() {
                       ? "Carousel"
                       : aiPlan?.format ===
                         "single_post"
-                        ? "Single Post"
-                        : "Auto"}
+                      ? "Single Post"
+                      : "Auto"}
                   </strong>
-
                 </div>
 
                 <div>
-
                   <span>
                     TONE
                   </span>
@@ -1592,11 +1890,9 @@ function CreatePost() {
                     {aiPlan?.tone ||
                       "Auto"}
                   </strong>
-
                 </div>
 
                 <div>
-
                   <span>
                     AUDIENCE
                   </span>
@@ -1605,11 +1901,9 @@ function CreatePost() {
                     {aiPlan?.audience ||
                       "AI Selected"}
                   </strong>
-
                 </div>
 
                 <div>
-
                   <span>
                     STYLE
                   </span>
@@ -1618,17 +1912,13 @@ function CreatePost() {
                     {aiPlan?.selected_style ||
                       "AI Selected"}
                   </strong>
-
                 </div>
 
               </div>
-
             </div>
 
             {aiPlan && (
-
               <div className="ai-strategy-footer">
-
                 <span>
                   ✦
                 </span>
@@ -1636,11 +1926,8 @@ function CreatePost() {
                 AI has automatically optimized
                 this strategy for your selected
                 platforms.
-
               </div>
-
             )}
-
           </div>
 
           {/* ==================================================
@@ -1648,11 +1935,8 @@ function CreatePost() {
           ================================================== */}
 
           {aiPlan?.hashtags?.length > 0 && (
-
             <div className="ai-hashtags">
-
               <div className="ai-hashtags-header">
-
                 <span>
                   AI HASHTAGS
                 </span>
@@ -1660,25 +1944,18 @@ function CreatePost() {
                 <small>
                   Optimized for your post
                 </small>
-
               </div>
 
               <div className="ai-hashtag-list">
-
                 {aiPlan.hashtags.map(
                   (tag, index) => (
-
                     <span key={index}>
                       {tag}
                     </span>
-
                   )
                 )}
-
               </div>
-
             </div>
-
           )}
 
           {/* ==================================================
@@ -1698,11 +1975,9 @@ function CreatePost() {
               platforms.length === 0
             }
           >
-
             {isGenerating
               ? "✦ Generating..."
               : "✦ Generate with AI"}
-
           </button>
 
           {/* ==================================================
@@ -1720,30 +1995,35 @@ function CreatePost() {
                 isSavingDraft
               }
             >
-
               {isSavingDraft
                 ? "Saving..."
                 : "Save Draft"}
-
             </button>
 
             <button
+              type="button"
               className="schedule-post-button"
-              onClick={() =>
-                setIsScheduleOpen(
-                  true
-                )
-              }
+              onClick={() => {
+                if (!postId) {
+                  alert("Please generate a post first.");
+                  return;
+                }
+                if (!platforms.length) {
+                  alert("Please select at least one connected platform.");
+                  return;
+                }
+                setScheduledAt("");
+                setIsScheduleOpen(true);
+              }}
               disabled={
                 isScheduling ||
-                !postId
+                !postId ||
+                platforms.length === 0
               }
             >
-
               {isScheduling
                 ? "Scheduling..."
                 : "Schedule Post"}
-
             </button>
 
           </div>
@@ -1754,54 +2034,137 @@ function CreatePost() {
 
           {postId &&
             platforms.length > 0 && (
-
               <div className="publish-actions">
 
-                {/* --------------------------------------------
-                    INDEPENDENT PUBLISH BUTTONS
-                -------------------------------------------- */}
+                {/* X OPTIONS */}
 
-                {platforms.map(
-                  (targetPlatform) => (
+                {platforms.includes(
+                  "x"
+                ) && (
+                  <div className="x-publish-options">
 
-                    <button
-                      key={
-                        targetPlatform
-                      }
-                      type="button"
-                      className="publish-platform-button"
-                      onClick={() =>
-                        handlePublish(
-                          targetPlatform
-                        )
-                      }
-                      disabled={
-                        isPublishingAll ||
-                        publishingPlatform ===
-                          targetPlatform
-                      }
-                    >
+                    <div className="x-publish-title">
+                      X Publishing Options
+                    </div>
 
-                      {publishingPlatform ===
-                      targetPlatform
-                        ? `Publishing ${formatPlatformName(
-                            targetPlatform
-                          )}...`
-                        : `Publish to ${formatPlatformName(
-                            targetPlatform
-                          )}`}
+                    <label className="x-publish-option">
+                      <input
+                        type="radio"
+                        name="xPublishMode"
+                        checked={
+                          !xIncludeImage
+                        }
+                        onChange={() =>
+                          setXIncludeImage(
+                            false
+                          )
+                        }
+                      />
 
-                    </button>
+                      <span>
+                        Text + Hashtags only
+                      </span>
+                    </label>
 
-                  )
+                    <label className="x-publish-option">
+                      <input
+                        type="radio"
+                        name="xPublishMode"
+                        checked={
+                          xIncludeImage
+                        }
+                        onChange={() =>
+                          setXIncludeImage(
+                            true
+                          )
+                        }
+                      />
+
+                      <span>
+                        Image + Text + Hashtags
+                      </span>
+                    </label>
+
+                    <div className="x-character-count">
+                      {xCharacterCount} / 280
+                      {" "}
+                      characters
+                    </div>
+
+                    {xIncludeImage &&
+                      generatedImages.length ===
+                        0 && (
+                        <div className="x-character-error">
+                          Image publishing is selected,
+                          but no generated image is
+                          available for this post.
+                        </div>
+                      )}
+
+                    {isXOverLimit && (
+                      <div className="x-character-error">
+                        X post exceeds the 280
+                        character limit.
+                      </div>
+                    )}
+
+                  </div>
                 )}
 
-                {/* --------------------------------------------
-                    PUBLISH ALL
-                -------------------------------------------- */}
+                {/* INDEPENDENT PUBLISH BUTTONS */}
+
+                {platforms.map(
+                  (targetPlatform) => {
+                    const normalizedPlatform =
+                      targetPlatform.toLowerCase();
+
+                    const isX =
+                      normalizedPlatform ===
+                      "x";
+
+                    return (
+                      <button
+                        key={
+                          targetPlatform
+                        }
+                        type="button"
+                        className="publish-platform-button"
+                        onClick={() =>
+                          handlePublish(
+                            targetPlatform,
+                            isX
+                              ? xIncludeImage
+                              : false
+                          )
+                        }
+                        disabled={
+                          isPublishingAll ||
+                          publishingPlatform ===
+                            normalizedPlatform ||
+                          (isX &&
+                            isXOverLimit) ||
+                          (isX &&
+                            xIncludeImage &&
+                            generatedImages.length ===
+                              0)
+                        }
+                      >
+                        {publishingPlatform ===
+                        normalizedPlatform
+                          ? `Publishing ${formatPlatformName(
+                              targetPlatform
+                            )}...`
+                          : `Publish to ${formatPlatformName(
+                              targetPlatform
+                            )}`}
+                      </button>
+                    );
+                  }
+                )}
+
+                {/* PUBLISH ALL */}
 
                 {platforms.length > 1 && (
-
                   <button
                     type="button"
                     className="publish-all-button"
@@ -1811,20 +2174,26 @@ function CreatePost() {
                     disabled={
                       isPublishingAll ||
                       publishingPlatform !==
-                        null
+                        null ||
+                      (platforms.includes(
+                        "x"
+                      ) &&
+                        isXOverLimit) ||
+                      (platforms.includes(
+                        "x"
+                      ) &&
+                        xIncludeImage &&
+                        generatedImages.length ===
+                          0)
                     }
                   >
-
                     {isPublishingAll
                       ? "Publishing to all..."
                       : "Publish to All Connected"}
-
                   </button>
-
                 )}
 
               </div>
-
             )}
 
         </div>
@@ -1836,9 +2205,7 @@ function CreatePost() {
         <div className="post-preview-card">
 
           <div className="preview-header">
-
             <div>
-
               <h2>
                 Preview
               </h2>
@@ -1847,9 +2214,7 @@ function CreatePost() {
                 AI-generated content will
                 appear here.
               </p>
-
             </div>
-
           </div>
 
           <div className="social-preview">
@@ -1865,13 +2230,11 @@ function CreatePost() {
               </div>
 
               <div>
-
                 <strong>
                   Your Brand
                 </strong>
 
                 <span>
-
                   {platforms.length
                     ? platforms
                         .map(
@@ -1879,9 +2242,7 @@ function CreatePost() {
                         )
                         .join(" + ")
                     : "No platform selected"}
-
                 </span>
-
               </div>
 
             </div>
@@ -1893,51 +2254,39 @@ function CreatePost() {
             <div className="preview-content">
 
               {aiPlan ? (
-
                 <>
-
                   <h3>
                     {aiPlan.headline ||
                       topic}
                   </h3>
 
                   {aiPlan.subheadline && (
-
                     <p>
                       {
                         aiPlan.subheadline
                       }
                     </p>
-
                   )}
 
                   {aiPlan.introduction && (
-
                     <p>
                       {
                         aiPlan.introduction
                       }
                     </p>
-
                   )}
 
                   {aiPlan.sections
                     ?.length > 0 && (
-
                     <div className="ai-sections">
-
                       {aiPlan.sections.map(
-                        (
-                          section
-                        ) => (
-
+                        (section) => (
                           <div
                             className="ai-section"
                             key={
                               section.number
                             }
                           >
-
                             <strong>
                               {
                                 section.title
@@ -1949,56 +2298,36 @@ function CreatePost() {
                                 section.description
                               }
                             </p>
-
                           </div>
-
                         )
                       )}
-
                     </div>
-
                   )}
 
                   {aiPlan.key_takeaway && (
-
                     <p>
-
                       <strong>
                         Key Takeaway:
                       </strong>{" "}
-
                       {
                         aiPlan.key_takeaway
                       }
-
                     </p>
-
                   )}
 
                   {aiPlan.cta && (
-
                     <p>
-
                       <strong>
                         CTA:
                       </strong>{" "}
-
                       {aiPlan.cta}
-
                     </p>
-
                   )}
-
                 </>
-
               ) : topic ? (
-
                 topic
-
               ) : (
-
                 "Your AI-generated post preview will appear here..."
-
               )}
 
             </div>
@@ -2012,7 +2341,6 @@ function CreatePost() {
               <div className="ai-image-header">
 
                 <div>
-
                   <span>
                     AI VISUAL
                   </span>
@@ -2020,15 +2348,12 @@ function CreatePost() {
                   <h3>
                     Generated Creative
                   </h3>
-
                 </div>
 
                 <span className="ai-image-status">
-
                   {aiPlan
                     ? "Ready"
                     : "Waiting"}
-
                 </span>
 
               </div>
@@ -2037,15 +2362,12 @@ function CreatePost() {
 
                 {generatedImages.length >
                 0 ? (
-
                   <div className="generated-images-container">
-
                     {generatedImages.map(
                       (
                         imageUrl,
                         index
                       ) => (
-
                         <img
                           key={
                             index
@@ -2058,16 +2380,11 @@ function CreatePost() {
                           }`}
                           className="generated-ai-image"
                         />
-
                       )
                     )}
-
                   </div>
-
                 ) : (
-
                   <>
-
                     <div className="ai-image-glow"></div>
 
                     <div className="ai-image-content">
@@ -2077,25 +2394,19 @@ function CreatePost() {
                       </div>
 
                       <strong>
-
                         {aiPlan
                           ? "AI visual will be generated"
                           : "Your visual starts here"}
-
                       </strong>
 
                       <p>
-
                         AI will create a visual
                         based on your content
                         strategy.
-
                       </p>
 
                     </div>
-
                   </>
-
                 )}
 
               </div>
@@ -2108,15 +2419,12 @@ function CreatePost() {
                   )
                 }
               >
-
                 ✦ Generate Visual
-
               </button>
 
             </div>
 
           </div>
-
         </div>
 
       </div>
@@ -2126,7 +2434,6 @@ function CreatePost() {
       ====================================================== */}
 
       {isScheduleOpen && (
-
         <div className="schedule-modal-overlay">
 
           <div className="schedule-modal">
@@ -2134,7 +2441,6 @@ function CreatePost() {
             <div className="schedule-modal-header">
 
               <div>
-
                 <span className="schedule-modal-label">
                   SCHEDULE
                 </span>
@@ -2142,7 +2448,6 @@ function CreatePost() {
                 <h3>
                   Schedule Post
                 </h3>
-
               </div>
 
               <button
@@ -2162,27 +2467,41 @@ function CreatePost() {
             <div className="schedule-field">
 
               <label>
+                Platforms
+              </label>
+
+              <div className="schedule-platform-summary">
+                {platforms.map((platform) => (
+                  <span
+                    key={platform}
+                    className="schedule-platform-chip"
+                  >
+                    {formatPlatformName(platform)}
+                  </span>
+                ))}
+              </div>
+
+              <small className="field-help">
+                The same generated post will be scheduled for each selected platform.
+              </small>
+
+            </div>
+
+            <div className="schedule-field">
+
+              <label>
                 Select Date & Time
               </label>
 
               <input
                 type="datetime-local"
-                value={
-                  scheduledAt
-                }
+                value={scheduledAt}
                 onChange={(e) =>
-                  setScheduledAt(
-                    e.target.value
-                  )
+                  setScheduledAt(e.target.value)
                 }
-                min={
-                  new Date()
-                    .toISOString()
-                    .slice(
-                      0,
-                      16
-                    )
-                }
+                min={new Date()
+                  .toISOString()
+                  .slice(0, 16)}
               />
 
             </div>
@@ -2204,31 +2523,22 @@ function CreatePost() {
               <button
                 type="button"
                 className="schedule-confirm-button"
-                onClick={async () => {
-                  await handleSchedulePost();
-
-                  setIsScheduleOpen(
-                    false
-                  );
-                }}
+                onClick={handleSchedulePost}
                 disabled={
                   !scheduledAt ||
-                  isScheduling
+                  isScheduling ||
+                  !platforms.length
                 }
               >
-
                 {isScheduling
                   ? "Scheduling..."
                   : "Schedule"}
-
               </button>
 
             </div>
 
           </div>
-
         </div>
-
       )}
 
     </div>

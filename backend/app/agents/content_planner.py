@@ -1,8 +1,7 @@
 import json
 import re
 
-from app.services.content_generator import client
-
+from app.services.content_generator import create_groq_completion
 
 # ---------------------------------------------------------
 # JSON CLEANER
@@ -648,24 +647,22 @@ Never force the topic into a predetermined template.
     # GROQ CALL
     # -----------------------------------------------------
 
-    response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert autonomous social media "
-                    "content planner. Return valid JSON only."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0.4,
-        max_tokens=3000
-    )
+    response = create_groq_completion(
+    messages=[
+        {
+            "role": "system",
+            "content": (
+                "You are an expert autonomous social media "
+                "content planner. Return valid JSON only."
+            )
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ],
+    temperature=0.4,
+)
 
     raw_text = response.choices[0].message.content
 

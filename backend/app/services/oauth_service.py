@@ -412,3 +412,231 @@ def get_meta_client_secret() -> str:
         )
 
     return META_CLIENT_SECRET
+# =========================================================
+# X / TWITTER OAUTH 2.0 PKCE CONFIGURATION
+# =========================================================
+
+X_CLIENT_ID = os.getenv("X_CLIENT_ID")
+X_CLIENT_SECRET = os.getenv("X_CLIENT_SECRET")
+
+X_REDIRECT_URI = os.getenv(
+    "X_REDIRECT_URI",
+    "http://127.0.0.1:8000/social-accounts/oauth/x/callback",
+).strip()
+
+X_AUTHORIZATION_URL = "https://twitter.com/i/oauth2/authorize"
+X_TOKEN_URL = "https://api.x.com/2/oauth2/token"
+X_USER_ME_URL = "https://api.x.com/2/users/me"
+
+X_SCOPES = [
+    "tweet.read",
+    "tweet.write",
+    "users.read",
+    "media.write",
+    "offline.access",
+]
+
+def generate_x_code_verifier() -> str:
+    """
+    Generate a secure PKCE code verifier.
+    """
+    return secrets.token_urlsafe(64)
+
+
+def generate_x_code_challenge(code_verifier: str) -> str:
+    """
+    Generate PKCE S256 code challenge.
+    """
+    import hashlib
+    import base64
+
+    digest = hashlib.sha256(
+        code_verifier.encode("utf-8")
+    ).digest()
+
+    return base64.urlsafe_b64encode(
+        digest
+    ).decode("utf-8").rstrip("=")
+
+
+def get_x_redirect_uri() -> str:
+    """
+    Return the canonical X OAuth redirect URI.
+    """
+    redirect_uri = X_REDIRECT_URI.strip()
+
+    if not redirect_uri:
+        raise RuntimeError(
+            "X_REDIRECT_URI is not configured."
+        )
+
+    return redirect_uri
+
+
+def validate_x_oauth_config() -> None:
+    """
+    Validate X OAuth configuration.
+    """
+    if not X_CLIENT_ID:
+        raise RuntimeError(
+            "X_CLIENT_ID is not configured."
+        )
+
+    if not X_CLIENT_SECRET:
+        raise RuntimeError(
+            "X_CLIENT_SECRET is not configured."
+        )
+
+    get_x_redirect_uri()
+
+
+def build_x_authorization_url(
+    state: str,
+    code_challenge: str,
+) -> str:
+    """
+    Build X OAuth 2.0 authorization URL.
+    """
+
+    validate_x_oauth_config()
+
+    if not state:
+        raise ValueError(
+            "OAuth state is required."
+        )
+
+    if not code_challenge:
+        raise ValueError(
+            "PKCE code challenge is required."
+        )
+
+    params = {
+        "response_type": "code",
+        "client_id": X_CLIENT_ID,
+        "redirect_uri": get_x_redirect_uri(),
+        "scope": " ".join(X_SCOPES),
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+
+    authorization_url = (
+        f"{X_AUTHORIZATION_URL}"
+        f"?{urlencode(params)}"
+    )
+
+    print("X OAuth authorization configured:")
+    print("  client_id:", X_CLIENT_ID)
+    print("  redirect_uri:", repr(get_x_redirect_uri()))
+    print("  scopes:", X_SCOPES)
+
+    return authorization_url
+
+
+def exchange_x_code_for_access_token(
+    code: str,
+    code_verifier: str,
+) -> dict:
+    """
+    Exchange X OAuth authorization code
+    for access + refresh tokens.
+    """
+
+    validate_x_oauth_config()
+
+    if not code:
+        raise ValueError(
+            "X authorization code is required."
+        )
+
+    if not code_verifier:
+        raise ValueError(
+            "X PKCE code verifier is required."
+        )
+
+    payload = {
+        "code": code,
+        "grant_type": "authorization_code",
+        "client_id": X_CLIENT_ID,
+        "redirect_uri": get_x_redirect_uri(),
+        "code_verifier": code_verifier,
+    }
+
+    response = requests.post(
+        X_TOKEN_URL,
+        data=payload,
+        auth=(
+            X_CLIENT_ID,
+            X_CLIENT_SECRET,
+        ),
+        timeout=30,
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            "X token exchange failed: "
+            f"{response.status_code} - "
+            f"{response.text}"
+        )
+
+    try:
+        data = response.json()
+    except ValueError as e:
+        raise RuntimeError(
+            "X returned an invalid token response."
+        ) from e
+
+    if not data.get("access_token"):
+        raise RuntimeError(
+            "X did not return an access token."
+        )
+
+    return data
+
+
+def get_x_current_user(
+    access_token: str,
+) -> dict:
+    """
+    Get the X account associated with
+    the OAuth access token.
+    """
+
+    if not access_token:
+        raise ValueError(
+            "X access token is required."
+        )
+
+    response = requests.get(
+        X_USER_ME_URL,
+        params={
+            "user.fields": "id,name,username",
+        },
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        timeout=30,
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            "X user lookup failed: "
+            f"{response.status_code} - "
+            f"{response.text}"
+        )
+
+    try:
+        data = response.json()
+    except ValueError as e:
+        raise RuntimeError(
+            "X returned an invalid user response."
+        ) from e
+
+    user = data.get("data")
+
+    if not user or not user.get("id"):
+        raise RuntimeError(
+            "X did not return the authenticated user."
+        )
+
+    return user
