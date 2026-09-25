@@ -14,6 +14,7 @@ from app.services.linkedin_publish_service import (
 from app.services.instagram_publish_service import (
     publish_instagram_image_post,
 )
+
 from app.services.x_publish_service import (
     publish_x_text_post,
     publish_x_image_post,
@@ -36,6 +37,8 @@ class GeneratePostRequest(BaseModel):
 class SaveDraftRequest(BaseModel):
     topic: str = ""
     description: str = ""
+
+
 class XPublishRequest(BaseModel):
     include_image: bool = False
 
@@ -475,10 +478,6 @@ Keep the content:
         # -------------------------------------------------
         # FIRST PLATFORM
         # -------------------------------------------------
-        #
-        # Keep existing top-level fields for backward
-        # compatibility with the current frontend/database.
-        # -------------------------------------------------
 
         first_platform = platforms[0]
 
@@ -844,9 +843,10 @@ def publish_post_to_linkedin(
         # GET LINKEDIN VARIANT
         # -------------------------------------------------
 
-        platform_variants = post.get(
-            "platform_variants"
-        ) or {}
+        platform_variants = (
+            post.get("platform_variants")
+            or {}
+        )
 
         linkedin_variant = platform_variants.get(
             "linkedin"
@@ -975,9 +975,25 @@ def publish_post_to_linkedin(
             )
 
         # -------------------------------------------------
-        # UPDATE ONLY LINKEDIN STATUS
+        # SAVE LINKEDIN PUBLISH RESULT
         # -------------------------------------------------
 
+        linkedin_post_id = result.get(
+            "post_id"
+        )
+
+        if not linkedin_post_id:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "LinkedIn published successfully but "
+                    "no LinkedIn post ID was returned."
+                ),
+            )
+
+        # Keep the existing platform_status format.
+        # DO NOT change this to an object because the
+        # current frontend already expects "published".
         platform_status = (
             post.get("platform_status")
             or {}
@@ -985,8 +1001,19 @@ def publish_post_to_linkedin(
 
         platform_status["linkedin"] = "published"
 
+        # Save the actual LinkedIn post ID inside the
+        # existing LinkedIn platform variant.
+        linkedin_variant["platform_post_id"] = (
+            linkedin_post_id
+        )
+
+        platform_variants["linkedin"] = (
+            linkedin_variant
+        )
+
         db.table("posts").update({
             "platform_status": platform_status,
+            "platform_variants": platform_variants,
         }).eq(
             "id",
             post_id,
@@ -999,9 +1026,7 @@ def publish_post_to_linkedin(
             "message": "Post published to LinkedIn successfully.",
             "platform": "linkedin",
             "post_id": post_id,
-            "linkedin_post_id": result.get(
-                "post_id"
-            ),
+            "linkedin_post_id": linkedin_post_id,
             "status": "published",
             "platform_status": platform_status,
         }
@@ -1187,9 +1212,23 @@ def publish_post_to_instagram(
         )
 
         # -------------------------------------------------
-        # UPDATE ONLY INSTAGRAM STATUS
+        # SAVE INSTAGRAM PUBLISH RESULT
         # -------------------------------------------------
 
+        instagram_media_id = result.get(
+            "media_id"
+        )
+
+        if not instagram_media_id:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Instagram published successfully but "
+                    "no Instagram media ID was returned."
+                ),
+            )
+
+        # Keep the existing platform_status format.
         platform_status = (
             post.get("platform_status")
             or {}
@@ -1197,8 +1236,19 @@ def publish_post_to_instagram(
 
         platform_status["instagram"] = "published"
 
+        # Save actual Instagram media ID inside the
+        # existing Instagram platform variant.
+        instagram_variant["platform_post_id"] = (
+            instagram_media_id
+        )
+
+        platform_variants["instagram"] = (
+            instagram_variant
+        )
+
         db.table("posts").update({
             "platform_status": platform_status,
+            "platform_variants": platform_variants,
         }).eq(
             "id",
             post_id,
@@ -1211,9 +1261,7 @@ def publish_post_to_instagram(
             "message": "Post published to Instagram successfully.",
             "platform": "instagram",
             "post_id": post_id,
-            "instagram_media_id": result.get(
-                "media_id"
-            ),
+            "instagram_media_id": instagram_media_id,
             "status": "published",
             "platform_status": platform_status,
         }
@@ -1226,6 +1274,7 @@ def publish_post_to_instagram(
             status_code=500,
             detail=str(e),
         )
+
 
 # =========================================================
 # PUBLISH ONE POST TO X
@@ -1404,9 +1453,23 @@ def publish_post_to_x(
             )
 
         # -------------------------------------------------
-        # UPDATE ONLY X STATUS
+        # SAVE X PUBLISH RESULT
         # -------------------------------------------------
 
+        x_post_id = result.get(
+            "post_id"
+        )
+
+        if not x_post_id:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "X published successfully but "
+                    "no X post ID was returned."
+                ),
+            )
+
+        # Keep the existing platform_status format.
         platform_status = (
             post.get("platform_status")
             or {}
@@ -1414,8 +1477,21 @@ def publish_post_to_x(
 
         platform_status["x"] = "published"
 
+        # Save actual X post ID inside the
+        # existing X platform variant.
+        x_variant["platform_post_id"] = x_post_id
+
+        # Also save media ID if an image was used.
+        if result.get("media_id"):
+            x_variant["media_id"] = result.get(
+                "media_id"
+            )
+
+        platform_variants["x"] = x_variant
+
         db.table("posts").update({
             "platform_status": platform_status,
+            "platform_variants": platform_variants,
         }).eq(
             "id",
             post_id,
@@ -1428,7 +1504,7 @@ def publish_post_to_x(
             "message": "Post published to X successfully.",
             "platform": "x",
             "post_id": post_id,
-            "x_post_id": result.get("post_id"),
+            "x_post_id": x_post_id,
             "media_id": result.get("media_id"),
             "include_image": data.include_image,
             "character_count": len(text),

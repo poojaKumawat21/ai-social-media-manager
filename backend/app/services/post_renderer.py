@@ -7,6 +7,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 
 from app.services.image_generator import generate_ai_visual
+from app.services.structured_visual_renderer import render_structured_visual
 
 
 # ============================================================
@@ -787,6 +788,81 @@ def add_soft_vignette(image: Image.Image):
 
 
 # ============================================================
+# TEXT READABILITY HELPERS
+# ============================================================
+
+def _relative_luminance(rgb):
+    """Approximate perceived luminance in the 0..1 range."""
+    r, g, b = [max(0, min(255, int(v))) / 255.0 for v in rgb[:3]]
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _sample_region_luminance(image: Image.Image, box):
+    """Sample the rendered image region to decide whether text needs a panel."""
+    try:
+        x1, y1, x2, y2 = [int(v) for v in box]
+        x1 = max(0, min(image.width - 1, x1))
+        y1 = max(0, min(image.height - 1, y1))
+        x2 = max(x1 + 1, min(image.width, x2))
+        y2 = max(y1 + 1, min(image.height, y2))
+        crop = image.convert("RGB").crop((x1, y1, x2, y2))
+        # Downsample so this remains cheap even for 1080x1350 renders.
+        crop.thumbnail((32, 32))
+        pixels = list(crop.getdata())
+        if not pixels:
+            return 0.5
+        return sum(_relative_luminance(px) for px in pixels) / len(pixels)
+    except Exception:
+        return 0.5
+
+
+def _text_color_for_region(image: Image.Image, box, preferred):
+    """Choose readable text color while respecting the preferred theme color when possible."""
+    lum = _sample_region_luminance(image, box)
+    preferred_lum = _relative_luminance(preferred)
+
+    # Dark image/background -> light text. Light image/background -> dark text.
+    if lum < 0.45:
+        return (255, 255, 255)
+    if lum > 0.62:
+        return (18, 18, 18)
+
+    return preferred if preferred_lum < 0.5 else (255, 255, 255)
+
+
+def _add_readability_panel(image: Image.Image, box, text_color, force=False):
+    """Add a restrained translucent panel behind text when the visual is busy."""
+    x1, y1, x2, y2 = [int(v) for v in box]
+    pad_x = 28
+    pad_y = 24
+    panel = (
+        max(18, x1 - pad_x),
+        max(18, y1 - pad_y),
+        min(image.width - 18, x2 + pad_x),
+        min(image.height - 18, y2 + pad_y),
+    )
+
+    # If text is light, use a dark panel; otherwise use a light panel.
+    if _relative_luminance(text_color) > 0.55:
+        fill = (0, 0, 0, 168 if force else 145)
+    else:
+        fill = (255, 255, 255, 220 if force else 188)
+
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    odraw.rounded_rectangle(panel, radius=DEFAULT_RADIUS, fill=fill)
+    image.alpha_composite(overlay)
+
+    return panel
+
+
+def _boxes_overlap(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    return not (ax2 <= bx1 or bx2 <= ax1 or ay2 <= by1 or by2 <= ay1)
+
+
+# ============================================================
 # TEXT BLOCKS
 # ============================================================
 
@@ -1204,6 +1280,7 @@ def render_slide(
     ai_image: Image.Image | None = None,
     slide_index: int = 0,
     total_slides: int = 1,
+    planner_data: dict | None = None,
 ):
     """
     Main slide renderer.
@@ -1211,6 +1288,8 @@ def render_slide(
     AI decides the design.
     Renderer executes it safely.
     """
+
+    planner_data = planner_data or {}
 
     width = CANVAS_WIDTH
     height = CANVAS_HEIGHT
@@ -1237,6 +1316,28 @@ def render_slide(
         slide,
         design,
     )
+
+    visual_strategy = design.get("visual_strategy", {})
+    if not isinstance(visual_strategy, dict):
+        visual_strategy = {}
+
+    visual_type = _safe_text(
+        slide.get("visual_type")
+        or visual_strategy.get("type")
+    ).lower()
+
+    renderer = _safe_text(
+        visual_strategy.get("renderer")
+    ).lower()
+
+    if not renderer:
+        renderer = (
+            "ai_image"
+            if visual_type in {"photo", "illustration"}
+            else "chart"
+            if visual_type == "graph"
+            else "structured"
+        )
 
     composition = slide_values["composition"]
     image_position = slide_values["image_position"]
@@ -1285,6 +1386,37 @@ def render_slide(
         )
 
     # --------------------------------------------------------
+    # Structured visual layer
+    # --------------------------------------------------------
+    # Structured/chart/hybrid types are rendered with PIL so exact text,
+    # numbers and labels stay under our control. AI image generation is
+    # never used for these unless the Design Agent explicitly requested
+    # a hybrid treatment.
+    if visual_type in {
+        "infographic", "graph", "timeline", "cards",
+        "event_poster", "diagram"
+    } and renderer in {"structured", "chart", "hybrid"}:
+        try:
+            rendered_structured = render_structured_visual(
+                image=image,
+                visual_type=visual_type,
+                slide=slide,
+                design=design,
+                planner_data=planner_data,
+            )
+            if not rendered_structured:
+                print(
+                    f"[WARN] No structured data available for visual_type={visual_type}; "
+                    "falling back to text-safe composition."
+                )
+        except Exception as exc:
+            # Never break a working post because an optional visual renderer fails.
+            print(
+                f"[WARN] Structured visual rendering failed for "
+                f"slide {slide_index + 1}: {type(exc).__name__}: {exc}"
+            )
+
+    # --------------------------------------------------------
     # Read slide text
     # --------------------------------------------------------
 
@@ -1296,7 +1428,7 @@ def render_slide(
     takeaway = text_data["takeaway"]
 
     # --------------------------------------------------------
-    # Decide readability overlay
+    # Decide readability overlay / text-safe panel
     # --------------------------------------------------------
 
     overlay_needed = (
@@ -1306,21 +1438,42 @@ def render_slide(
         or "centered" in composition
     )
 
-    if overlay_needed and ai_image is not None:
-        overlay_box = (
-            text_box[0] - 28,
-            text_box[1] - 28,
-            text_box[2] + 28,
-            text_box[3] + 28,
+    # The design agent chooses the composition, but the renderer owns
+    # the final readability guarantee. Never rely on the AI image itself
+    # to contain readable text.
+    preferred_text = colors["text"]
+    effective_text_color = preferred_text
+
+    if ai_image is not None:
+        effective_text_color = _text_color_for_region(
+            image,
+            text_box,
+            preferred_text,
         )
 
-        draw_overlay(
-            image,
-            overlay_box,
-            color=(0, 0, 0),
-            alpha=105,
-            radius=DEFAULT_RADIUS,
+        image_box_for_layout, _ = resolve_layout_boxes(
+            composition=composition,
+            image_position=image_position,
+            text_position=text_position,
+            width=width,
+            height=height,
         )
+
+        text_over_image = _boxes_overlap(text_box, image_box_for_layout)
+
+        if overlay_needed or text_over_image:
+            # Full-bleed/overlay layouts get a stronger panel; split layouts
+            # get a lighter panel only when text actually sits over imagery.
+            _add_readability_panel(
+                image,
+                text_box,
+                effective_text_color,
+                force=overlay_needed,
+            )
+
+    # Use the computed color for every text element on this slide.
+    colors = dict(colors)
+    colors["text"] = effective_text_color
 
     # --------------------------------------------------------
     # Text layout
@@ -1380,6 +1533,9 @@ def render_slide(
         else:
             title_x = tx1
 
+        # Small stroke keeps large headlines readable over detailed imagery.
+        title_stroke = 2 if ai_image is not None else 0
+        stroke_fill = (0, 0, 0) if _relative_luminance(colors["text"]) > 0.55 else (255, 255, 255)
         draw.multiline_text(
             (
                 int(title_x),
@@ -1390,6 +1546,8 @@ def render_slide(
             fill=colors["text"],
             spacing=8,
             align=text_alignment,
+            stroke_width=title_stroke,
+            stroke_fill=stroke_fill,
         )
 
         current_y += title_height + 18
@@ -1871,33 +2029,59 @@ def render_social_post(
 
         ai_image = None
 
-        background = design.get(
-            "background",
-            {},
+        # ----------------------------------------------------
+        # Visual strategy routing
+        # ----------------------------------------------------
+        visual_strategy = design.get("visual_strategy", {})
+        if not isinstance(visual_strategy, dict):
+            visual_strategy = {}
+
+        visual_type = _safe_text(
+            slide.get("visual_type")
+            or visual_strategy.get("type")
+        ).lower()
+
+        renderer = _safe_text(
+            visual_strategy.get("renderer")
+        ).lower()
+
+        # Renderer is derived from the semantic visual type when
+        # Design Agent did not explicitly provide one.
+        if not renderer:
+            if visual_type in {"photo", "illustration"}:
+                renderer = "ai_image"
+            elif visual_type == "graph":
+                renderer = "chart"
+            else:
+                renderer = "structured"
+
+        # Only these strategies are allowed to call the image model.
+        should_generate_ai = renderer in {"ai_image", "hybrid"}
+
+        print(
+            f"[RENDER] slide={index + 1}/{total_slides} "
+            f"visual_type={visual_type or 'unknown'} "
+            f"renderer={renderer or 'unknown'} "
+            f"ai_generation={'yes' if should_generate_ai else 'no'}"
         )
 
-        if not isinstance(
-            background,
-            dict,
-        ):
-            background = {}
-
-        ai_visual_required = background.get(
-            "ai_visual_required",
-            True,
-        )
-
-        if ai_visual_required:
+        if should_generate_ai:
             try:
+                print(f"[RENDER] Generating AI visual for slide {index + 1}...")
                 ai_image = generate_slide_visual(
                     slide=slide,
                     design=design,
                     planner_data=planner_data,
                 )
-            except Exception as exc:
                 print(
-                    f"[WARN] AI visual generation failed "
-                    f"for slide {index}: {exc}"
+                    f"[RENDER] AI visual generated for slide {index + 1}: "
+                    f"{ai_image.size if hasattr(ai_image, 'size') else 'unknown'}"
+                )
+            except Exception as exc:
+                # Do not crash the whole post because image generation failed.
+                print(
+                    f"[WARN] AI visual generation failed for slide {index + 1}: "
+                    f"{type(exc).__name__}: {exc}"
                 )
                 ai_image = None
 
@@ -1907,6 +2091,7 @@ def render_social_post(
             ai_image=ai_image,
             slide_index=index,
             total_slides=total_slides,
+            planner_data=planner_data,
         )
 
         filename = f"slide_{index + 1}.png"
@@ -1928,6 +2113,8 @@ def render_social_post(
                 "filename": filename,
                 "path": output_path,
                 "url": f"/generated-images/{post_id}/{filename}",
+                "visual_type": visual_type or "unknown",
+                "renderer": renderer or "structured",
             }
         )
 

@@ -24,9 +24,9 @@ if not HF_TOKEN:
 # =========================================================
 
 client = InferenceClient(
-    token=HF_TOKEN
+    provider="fal-ai",
+    api_key=HF_TOKEN
 )
-
 IMAGE_MODEL = "black-forest-labs/FLUX.1-schnell"
 
 

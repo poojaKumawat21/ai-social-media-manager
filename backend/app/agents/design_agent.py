@@ -1,5 +1,6 @@
 import json
 import re
+import traceback
 
 from app.services.content_generator import create_groq_completion
 
@@ -72,6 +73,117 @@ def normalize_format(value):
     return "single_post"
 
 
+# =========================================================
+# VISUAL STRATEGY
+# =========================================================
+
+ALLOWED_VISUAL_TYPES = {
+    "photo",
+    "infographic",
+    "graph",
+    "timeline",
+    "cards",
+    "event_poster",
+    "diagram",
+    "illustration",
+}
+
+VISUAL_TYPE_ALIASES = {
+    "photography": "photo",
+    "editorial photography": "photo",
+    "realistic photo": "photo",
+    "realistic photography": "photo",
+    "image": "photo",
+    "data visualization": "graph",
+    "chart": "graph",
+    "charts": "graph",
+    "data chart": "graph",
+    "data graph": "graph",
+    "time line": "timeline",
+    "timeline graphic": "timeline",
+    "info graphic": "infographic",
+    "information graphic": "infographic",
+    "information design": "infographic",
+    "event poster": "event_poster",
+    "event flyer": "event_poster",
+    "announcement poster": "event_poster",
+    "flowchart": "diagram",
+    "process diagram": "diagram",
+    "system diagram": "diagram",
+    "process flow": "diagram",
+    "concept art": "illustration",
+    "editorial illustration": "illustration",
+}
+
+
+def normalize_visual_type(value):
+    if not value:
+        return "photo"
+
+    normalized = _normalize_text(value).replace("-", " ").replace("_", " ")
+
+    if normalized in ALLOWED_VISUAL_TYPES:
+        return normalized
+
+    if normalized in VISUAL_TYPE_ALIASES:
+        return VISUAL_TYPE_ALIASES[normalized]
+
+    for alias, canonical in VISUAL_TYPE_ALIASES.items():
+        if alias in normalized:
+            return canonical
+
+    return "photo"
+
+
+def visual_strategy_rules():
+    return """
+VISUAL TYPE DECISION RULES
+
+Choose EXACTLY ONE primary visual type:
+
+1. photo
+   Use for real people, places, products, lifestyle, events,
+   objects, environments, or editorial scenes.
+
+2. infographic
+   Use when several related facts, concepts, categories, or
+   comparisons are easier to understand through structured visuals.
+
+3. graph
+   Use ONLY when actual numerical/statistical data is available.
+   Never invent data.
+
+4. timeline
+   Use when chronology, milestones, historical progression,
+   or ordered stages are central.
+
+5. cards
+   Use when several independent tips, features, benefits,
+   examples, options, or items are best shown as distinct blocks.
+   Do not use cards merely because the content is a list.
+
+6. event_poster
+   Use for an actual event, launch, announcement, registration,
+   date/venue/time communication, or promotional event creative.
+
+7. diagram
+   Use for processes, workflows, systems, relationships,
+   architecture, cause/effect, or "how it works".
+
+8. illustration
+   Use for abstract, conceptual, metaphorical, artistic, or
+   creative ideas where photography is less suitable.
+
+IMPORTANT:
+- Do not rotate visual types mechanically.
+- Do not choose graph without real data.
+- Do not choose event_poster for ordinary educational content.
+- Do not choose cards/infographic just because they look attractive.
+- Prefer the simplest visual type that communicates the message.
+- Explicit user visual instructions can override the automatic choice.
+- Platform rules influence execution, not the semantic decision.
+- The selected type must have a short, topic-specific reason.
+"""
 # =========================================================
 # PLATFORM NORMALIZER
 # =========================================================
@@ -454,6 +566,15 @@ Return ONLY valid JSON.
 Return exactly:
 
 {{
+    "visual_strategy": {{
+        "type": "photo",
+        "reason": "",
+        "renderer": "ai_image",
+        "data_required": false,
+        "data_source": "",
+        "layout": "",
+        "visual_data": []
+    }},
     "slides": [
         {{
             "purpose": "content",
@@ -470,7 +591,8 @@ Return exactly:
             "text_safe_area": "",
             "text_alignment": "",
             "icon": "",
-            "layout": ""
+            "layout": "",
+            "visual_data": []
         }}
     ]
 }}
@@ -487,23 +609,35 @@ Return exactly:
     # This keeps the existing repair logic unchanged.
     # =====================================================
 
-    response = create_groq_completion(
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a precise design repair agent. "
-                    "Return valid JSON only."
-                )
-            },
-            {
-                "role": "user",
-                "content": repair_prompt
-            }
-        ],
-        temperature=0.35,
-        max_retries=2
-    )
+    print("🔧 DESIGN REPAIR: Calling Groq completion helper...")
+
+    try:
+        response = create_groq_completion(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a precise design repair agent. "
+                        "Return valid JSON only."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": repair_prompt
+                }
+            ],
+            temperature=0.35,
+            max_retries=1
+        )
+    except Exception as exc:
+        print("❌ DESIGN REPAIR AI CALL FAILED")
+        print(f"   Exception: {type(exc).__name__}: {exc}")
+        traceback.print_exc()
+        # Keep the original design if repair itself fails.
+        # This avoids turning an optional repair into a full 500.
+        return result
+
+    print("✅ DESIGN REPAIR: AI response received")
 
     raw_content = (
         response
@@ -518,6 +652,33 @@ Return exactly:
 
     if not isinstance(repaired_slides, list):
         return result
+
+    repair_strategy = repair.get("visual_strategy")
+    if isinstance(repair_strategy, dict):
+        repair_strategy["type"] = normalize_visual_type(
+            repair_strategy.get("type")
+        )
+        repair_strategy.setdefault("reason", "")
+        repair_strategy.setdefault("data_source", "")
+        repair_strategy.setdefault("layout", "")
+        repair_strategy.setdefault("visual_data", [])
+        if not isinstance(repair_strategy.get("visual_data"), list):
+            repair_strategy["visual_data"] = []
+        repair_strategy.setdefault(
+            "data_required",
+            repair_strategy["type"] == "graph"
+        )
+        repair_strategy.setdefault(
+            "renderer",
+            "chart" if repair_strategy["type"] == "graph"
+            else "structured"
+            if repair_strategy["type"] in {
+                "infographic", "timeline", "cards",
+                "event_poster", "diagram"
+            }
+            else "ai_image"
+        )
+        result["visual_strategy"] = repair_strategy
 
     for slide in repaired_slides:
 
@@ -544,10 +705,14 @@ Return exactly:
             ""
         )
 
-        slide.setdefault(
-            "visual_type",
-            "topic_specific"
+        slide["visual_type"] = normalize_visual_type(
+            slide.get("visual_type")
+            or result.get("visual_strategy", {}).get("type", "photo")
         )
+
+        slide.setdefault("visual_data", [])
+        if not isinstance(slide.get("visual_data"), list):
+            slide["visual_data"] = []
 
         slide.setdefault(
             "visual_description",
@@ -598,6 +763,10 @@ Return exactly:
             "layout",
             "adaptive"
         )
+
+        slide.setdefault("visual_data", [])
+        if not isinstance(slide.get("visual_data"), list):
+            slide["visual_data"] = []
 
         result["slides"].append(slide)
 
@@ -769,6 +938,10 @@ def create_design_plan(
             "description",
             ""
         ),
+        "visual_instructions": planner_data.get(
+            "visual_instructions",
+            planner_data.get("design_instructions", "")
+        ),
         "niche": planner_data.get(
             "inferred_niche",
             ""
@@ -813,6 +986,19 @@ CONTENT PLANNER OUTPUT
     ensure_ascii=False,
     indent=2
 )}
+
+=========================================================
+USER VISUAL / DESIGN INSTRUCTIONS
+=========================================================
+
+If visual_instructions is provided, treat it as an explicit
+creative constraint for visual execution. Respect it unless
+it conflicts with factual content, readability, platform
+requirements, or the rule against inventing data.
+
+Do not blindly copy the instruction into every post.
+Use it to guide composition, visual style, color direction,
+subject placement, density, or other requested treatment.
 
 =========================================================
 CORE PRINCIPLE
@@ -986,6 +1172,42 @@ Use a hook only when useful.
 Use a conclusion only when useful.
 
 Do NOT create unnecessary slides.
+
+=========================================================
+EXPLICIT VISUAL STRATEGY DECISION
+=========================================================
+
+Before designing the slides, make an explicit semantic
+visual decision for the whole post.
+
+{visual_strategy_rules()}
+
+Return this decision at the TOP LEVEL as:
+
+"visual_strategy": {{
+    "type": "photo | infographic | graph | timeline | cards | event_poster | diagram | illustration",
+    "reason": "Short topic-specific reason.",
+    "renderer": "ai_image | structured | chart | hybrid",
+    "data_required": false,
+    "data_source": "",
+    "layout": "Short structural layout description."
+}}
+
+Renderer guidance:
+- photo -> ai_image
+- illustration -> ai_image
+- graph -> chart
+- infographic -> structured or hybrid
+- timeline -> structured
+- cards -> structured
+- event_poster -> structured or hybrid
+- diagram -> structured
+
+The visual_strategy.type is the primary visual decision.
+Slides should normally use the same visual_type unless a
+specific carousel slide genuinely needs another treatment.
+
+Do not invent numerical data for graph visuals.
 
 =========================================================
 ADVANCED VISUAL INTELLIGENCE
@@ -1284,6 +1506,32 @@ CANVAS
 Portrait orientation
 
 =========================================================
+STRUCTURED VISUAL DATA
+=========================================================
+
+When the selected visual type is structured, provide the
+actual content needed by the renderer in visual_data.
+
+Allowed examples:
+- graph: [{{"label":"2024","value":42}}]    
+- timeline: [{{"date":"2020","title":"Milestone","description":"..."}}]
+- cards: [{{"title":"...","description":"..."}}]
+- diagram: [{{"title":"Step 1","description":"..."}}, ...]
+
+Rules:
+- Use ONLY facts, numbers, milestones, steps, or concepts
+  already present in the planner, research, or generated content.
+- NEVER invent statistics or dates.
+- If real numerical data is unavailable, DO NOT choose graph.
+- For graph, visual_strategy.data_required must be true.
+- For structured visuals, slide.visual_data may override
+  visual_strategy.visual_data for a specific slide.
+- For photo/illustration, visual_data can be an empty list.
+
+The renderer will draw exact labels and text separately; the
+AI image model must never be asked to render post text.
+
+=========================================================
 OUTPUT JSON
 =========================================================
 
@@ -1361,7 +1609,8 @@ Use exactly:
             "text_safe_area": "",
             "text_alignment": "",
             "icon": "",
-            "layout": ""
+            "layout": "",
+            "visual_data": []
         }}
     ],
 
@@ -1470,24 +1719,38 @@ FINAL REQUIREMENTS
     # Groq -> retry -> Gemini fallback helper.
     # =====================================================
 
-    response = create_groq_completion(
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert social media "
-                    "visual design planning agent. "
-                    "Return valid JSON only."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0.65,
-        max_retries=2
-    )
+    print("🎯 DESIGN AGENT: Calling Groq completion helper...")
+
+    try:
+        response = create_groq_completion(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert social media "
+                        "visual design planning agent. "
+                        "Return valid JSON only."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.65,
+            # Keep Design Agent retries controlled so one generation
+            # request does not multiply into unnecessary API calls.
+            max_retries=1
+        )
+    except Exception as exc:
+        print("❌ DESIGN AGENT AI CALL FAILED")
+        print(f"   Exception: {type(exc).__name__}: {exc}")
+        traceback.print_exc()
+        raise RuntimeError(
+            f"Design Agent AI call failed: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    print("✅ DESIGN AGENT: AI response received")
 
     # =====================================================
     # READ RESPONSE
@@ -1523,6 +1786,7 @@ FINAL REQUIREMENTS
         "theme",
         "typography",
         "background",
+        "visual_strategy",
         "global_layout",
         "slides",
         "cta",
@@ -1535,6 +1799,41 @@ FINAL REQUIREMENTS
             raise ValueError(
                 f"Design Agent missing field: {field}"
             )
+
+    # =====================================================
+    # VISUAL STRATEGY VALIDATION
+    # =====================================================
+
+    if not isinstance(result.get("visual_strategy"), dict):
+        result["visual_strategy"] = {}
+
+    visual_strategy = result["visual_strategy"]
+    visual_strategy["type"] = normalize_visual_type(
+        visual_strategy.get("type")
+    )
+    visual_strategy.setdefault("reason", "")
+    visual_strategy.setdefault(
+        "renderer",
+        "chart" if visual_strategy["type"] == "graph"
+        else "structured"
+        if visual_strategy["type"] in {
+            "infographic", "timeline", "cards",
+            "event_poster", "diagram"
+        }
+        else "ai_image"
+    )
+    visual_strategy.setdefault(
+        "data_required",
+        visual_strategy["type"] == "graph"
+    )
+    visual_strategy.setdefault("data_source", "")
+    visual_strategy.setdefault("layout", "")
+    visual_strategy.setdefault("visual_data", [])
+    if not isinstance(visual_strategy.get("visual_data"), list):
+        visual_strategy["visual_data"] = []
+
+    if visual_strategy["type"] == "graph":
+        visual_strategy["data_required"] = True
 
     # =====================================================
     # FORMAT VALIDATION
@@ -1765,9 +2064,9 @@ FINAL REQUIREMENTS
             ""
         )
 
-        slide.setdefault(
-            "visual_type",
-            "topic_specific"
+        slide["visual_type"] = normalize_visual_type(
+            slide.get("visual_type")
+            or result.get("visual_strategy", {}).get("type", "photo")
         )
 
         slide.setdefault(
@@ -1845,7 +2144,9 @@ FINAL REQUIREMENTS
                     "title": headline,
                     "subtitle": subheadline,
                     "body": introduction,
-                    "visual_type": "topic_specific",
+                    "visual_type": result.get(
+                        "visual_strategy", {}
+                    ).get("type", "photo"),
                     "visual_description": visual_direction,
                     "visual_subject": "",
                     "visual_environment": "",

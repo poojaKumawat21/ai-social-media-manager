@@ -188,11 +188,8 @@ app.include_router(profile_router)
 app.include_router(posts_router)
 app.include_router(social_accounts_router)
 app.include_router(scheduled_posts_router)
-<<<<<<< Updated upstream
 app.include_router(ai_router)
-=======
 app.include_router(analytics_router)
->>>>>>> Stashed changes
 
 # =========================================================
 # STATIC FILES
