@@ -1,0 +1,135 @@
+.ai-settings-page {
+  width: 100%;
+}
+
+.ai-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  gap: 20px;
+}
+
+.ai-settings-header h1 {
+  margin: 6px 0 8px;
+  font-size: 30px;
+}
+
+.ai-settings-header p {
+  margin: 0;
+  color: #8b8b96;
+}
+
+.ai-settings-card {
+  background: #15151c;
+  border: 1px solid #292934;
+  border-radius: 16px;
+  padding: 28px;
+  max-width: 900px;
+}
+
+.ai-settings-card-header {
+  margin-bottom: 24px;
+}
+
+.ai-settings-card-header h2 {
+  margin: 0 0 7px;
+  font-size: 20px;
+}
+
+.ai-settings-card-header p {
+  margin: 0;
+  color: #8b8b96;
+  font-size: 14px;
+}
+
+.ai-setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 0;
+  border-bottom: 1px solid #292934;
+}
+
+.ai-setting-row strong {
+  font-size: 14px;
+}
+
+.ai-setting-row p {
+  margin: 6px 0 0;
+  color: #8b8b96;
+  font-size: 13px;
+}
+
+.ai-toggle {
+  width: 46px;
+  height: 24px;
+  border: none;
+  border-radius: 20px;
+  background: #35353f;
+  padding: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ai-toggle span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: 0.2s;
+}
+
+.ai-toggle.enabled {
+  background: #6d5dfc;
+}
+
+.ai-toggle.enabled span {
+  transform: translateX(22px);
+}
+
+.ai-settings-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  margin-top: 26px;
+}
+
+.ai-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-settings-field label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ai-settings-field select {
+  width: 100%;
+  box-sizing: border-box;
+  background: #101016;
+  border: 1px solid #30303b;
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: #ffffff;
+  font-size: 14px;
+  outline: none;
+}
+
+.ai-settings-field select:focus {
+  border-color: #6d5dfc;
+}
+
+@media (max-width: 700px) {
+  .ai-settings-header {
+    flex-direction: column;
+  }
+
+  .ai-settings-form {
+    grid-template-columns: 1fr;
+  }
+}
